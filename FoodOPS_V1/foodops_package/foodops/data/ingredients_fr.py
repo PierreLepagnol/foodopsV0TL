@@ -1,39 +1,112 @@
-from ..domain.ingredient import Ingredient, IngredientCategory as C, FoodGrade as G
+# -*- coding: utf-8 -*-
+"""
+Catalogue d'ingrédients multi-gammes + perception qualité selon type de restaurant.
+"""
 
-# Prix €/kg indicatifs (modifiables) — base France métropolitaine 2024–2025 (ordre de grandeur)
-# NB: c’est un catalogue minimal pour démarrer. On l’augmentera ensuite.
-INGREDIENTS_FR = {
+from dataclasses import dataclass
+from enum import Enum, auto
+from typing import Dict, List
+from ..domain.restaurant_type import RestaurantType
+
+
+class IngredientCategory(Enum):
+    VIANDE = auto()
+    POISSON = auto()
+    LEGUME = auto()
+    FECULENT = auto()
+    LEGUMINEUSE = auto()
+    PRODUIT_LAITIER = auto()
+    CONDIMENT = auto()
+    BOULANGERIE = auto()
+    AUTRE = auto()
+
+
+class FoodGrade(Enum):
+    """Gammes pro FR (1→5)."""
+    G1_FRAIS_BRUT = auto()        # frais bruts
+    G2_CONSERVE = auto()          # conserve/semi-conserve
+    G3_SURGELE = auto()           # surgelé
+    G4_CRU_PRET = auto()          # cru prêt à l'emploi
+    G5_CUIT_SOUS_VIDE = auto()    # cuit/vide/régénération
+
+
+@dataclass(frozen=True)
+class Ingredient:
+    name: str
+    base_price_eur_per_kg: float
+    category: IngredientCategory
+    grade: FoodGrade
+    perish_days: int
+
+
+# Coefficients de perception qualité selon le type de resto et la gamme
+# 1.0 = qualité perçue optimale, < 1.0 = perçu comme moins qualitatif
+QUALITY_PERCEPTION: Dict[RestaurantType, Dict[FoodGrade, float]] = {
+    RestaurantType.FAST_FOOD: {
+        FoodGrade.G1_FRAIS_BRUT: 1.0,
+        FoodGrade.G2_CONSERVE: 0.9,
+        FoodGrade.G3_SURGELE: 0.95,
+        FoodGrade.G4_CRU_PRET: 1.0,
+        FoodGrade.G5_CUIT_SOUS_VIDE: 0.95,
+    },
+    RestaurantType.BISTRO: {
+        FoodGrade.G1_FRAIS_BRUT: 1.0,
+        FoodGrade.G2_CONSERVE: 0.8,
+        FoodGrade.G3_SURGELE: 0.85,
+        FoodGrade.G4_CRU_PRET: 0.95,
+        FoodGrade.G5_CUIT_SOUS_VIDE: 0.9,
+    },
+    RestaurantType.GASTRO: {
+        FoodGrade.G1_FRAIS_BRUT: 1.0,
+        FoodGrade.G2_CONSERVE: 0.6,
+        FoodGrade.G3_SURGELE: 0.5,   # saumon surgelé en gastro => grosse pénalité
+        FoodGrade.G4_CRU_PRET: 0.85,
+        FoodGrade.G5_CUIT_SOUS_VIDE: 0.8,
+    },
+}
+
+# ----------------------------------------------------------------------
+# Catalogue multi-gammes
+# ----------------------------------------------------------------------
+
+def get_all_ingredients() -> List[Ingredient]:
+    """
+    Retourne une liste d'ingrédients avec plusieurs gammes disponibles.
+    """
+    ingredients: List[Ingredient] = []
+
     # Viandes
-    "Poulet (filet)":   Ingredient("Poulet (filet)", 7.80,  C.VIANDE, G.G1_FRAIS_BRUT, 5),
-    "Bœuf haché 15%":   Ingredient("Bœuf haché 15%", 9.50,  C.VIANDE, G.G1_FRAIS_BRUT, 4),
-    "Steak (rumsteck)": Ingredient("Steak (rumsteck)", 17.0, C.VIANDE, G.G1_FRAIS_BRUT, 4),
-    "Jambon blanc":     Ingredient("Jambon blanc", 8.40,    C.VIANDE, G.G4_CRU_PRET, 14),
+    ingredients += [
+        Ingredient("Steak haché", 12.0, IngredientCategory.VIANDE, FoodGrade.G1_FRAIS_BRUT, 5),
+        Ingredient("Steak haché", 9.0, IngredientCategory.VIANDE, FoodGrade.G3_SURGELE, 180),
+        Ingredient("Poulet", 11.0, IngredientCategory.VIANDE, FoodGrade.G1_FRAIS_BRUT, 5),
+        Ingredient("Poulet", 8.0, IngredientCategory.VIANDE, FoodGrade.G3_SURGELE, 180),
+    ]
 
     # Poissons
-    "Saumon frais":     Ingredient("Saumon frais", 17.5, C.POISSON, G.G1_FRAIS_BRUT, 3),
-    "Cabillaud":        Ingredient("Cabillaud", 14.0, C.POISSON, G.G1_FRAIS_BRUT, 3),
-
-    # Légumes
-    "Tomate":           Ingredient("Tomate", 2.80, C.LEGUME, G.G1_FRAIS_BRUT, 6),
-    "Salade":           Ingredient("Salade", 1.90, C.LEGUME, G.G1_FRAIS_BRUT, 3),
-    "Oignon":           Ingredient("Oignon", 1.20, C.LEGUME, G.G1_FRAIS_BRUT, 20),
-    "Pomme de terre":   Ingredient("Pomme de terre", 1.40, C.LEGUME, G.G1_FRAIS_BRUT, 30),
+    ingredients += [
+        Ingredient("Saumon", 20.0, IngredientCategory.POISSON, FoodGrade.G1_FRAIS_BRUT, 3),
+        Ingredient("Saumon", 15.0, IngredientCategory.POISSON, FoodGrade.G3_SURGELE, 180),
+        Ingredient("Cabillaud", 16.0, IngredientCategory.POISSON, FoodGrade.G1_FRAIS_BRUT, 3),
+        Ingredient("Cabillaud", 12.0, IngredientCategory.POISSON, FoodGrade.G3_SURGELE, 180),
+    ]
 
     # Féculents
-    "Pâtes (crues)":    Ingredient("Pâtes (crues)", 1.60, C.FECULENT, G.G2_CONSERVE, 365),
-    "Riz (cru)":        Ingredient("Riz (cru)", 1.90, C.FECULENT, G.G2_CONSERVE, 365),
+    ingredients += [
+        Ingredient("Riz", 2.5, IngredientCategory.FECULENT, FoodGrade.G2_CONSERVE, 365),
+        Ingredient("Riz", 2.0, IngredientCategory.FECULENT, FoodGrade.G3_SURGELE, 180),
+    ]
 
     # Produits laitiers
-    "Mozzarella":       Ingredient("Mozzarella", 6.80, C.PRODUIT_LAITIER, G.G4_CRU_PRET, 10),
-    "Comté":            Ingredient("Comté", 16.0, C.PRODUIT_LAITIER, G.G4_CRU_PRET, 30),
-    "Beurre":           Ingredient("Beurre", 7.0,  C.PRODUIT_LAITIER, G.G2_CONSERVE, 120),
+    ingredients += [
+        Ingredient("Fromage cheddar", 7.0, IngredientCategory.PRODUIT_LAITIER, FoodGrade.G3_SURGELE, 180),
+        Ingredient("Fromage cheddar", 8.5, IngredientCategory.PRODUIT_LAITIER, FoodGrade.G1_FRAIS_BRUT, 15),
+    ]
 
-    # Boulangerie
-    "Pain burger":      Ingredient("Pain burger", 3.50, C.BOULANGERIE, G.G5_CUIT_SOUS_VIDE, 5),
-    "Baguette":         Ingredient("Baguette", 3.20, C.BOULANGERIE, G.G5_CUIT_SOUS_VIDE, 2),
+    # Œufs
+    ingredients += [
+        Ingredient("Œufs", 4.0, IngredientCategory.PRODUIT_LAITIER, FoodGrade.G1_FRAIS_BRUT, 15),
+        Ingredient("Œufs", 5.5, IngredientCategory.PRODUIT_LAITIER, FoodGrade.G5_CUIT_SOUS_VIDE, 60),
+    ]
 
-    # Condiments
-    "Huile":            Ingredient("Huile", 4.0,  C.CONDIMENT, G.G2_CONSERVE, 365),
-    "Ketchup":          Ingredient("Ketchup", 2.2, C.CONDIMENT, G.G2_CONSERVE, 365),
-    "Moutarde":         Ingredient("Moutarde", 4.5, C.CONDIMENT, G.G2_CONSERVE, 365),
-}
+    return ingredients

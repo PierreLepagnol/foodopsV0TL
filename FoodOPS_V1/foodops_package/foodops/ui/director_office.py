@@ -142,7 +142,8 @@ def _action_recap_rh(r):
 
 # ——— Entrée principale ———
 
-def bureau_directeur(equipe_init: List = None, type_resto: str = "") -> List:
+def bureau_directeur(equipe, type_resto, resto=None, current_tour=1):
+    # si tu as accès à l'objet resto, passe-le directement (equipe restera dans resto)
     # r est injecté par game.py : on manipule l’objet directement
     # Ici, on retourne seulement l’équipe (back-compat de l’appel existant).
     current_restaurant = getattr(bureau_directeur, "_r", None)
@@ -182,8 +183,11 @@ def bureau_directeur(equipe_init: List = None, type_resto: str = "") -> List:
             _action_ajuster_salaires(r)
         elif choice == "5":
             _action_marketing(r)
-        elif choice == "6":
-            _action_prix_menu(r)
+        print("6. Recettes & Achats")
+# ...
+elif choice == "6":
+    from .director_recipes import run_recipes_shop
+    run_recipes_shop(resto, current_tour)  # tu dois faire passer current_tour depuis game.py
         elif choice == "7":
             _action_maintenance_qualite(r)
         elif choice == "8":

@@ -1,69 +1,82 @@
 # -*- coding: utf-8 -*-
 """
-Calculs de coûts matière (COGS) basés sur le référentiel d'ingrédients.
-Importe les prix via getter pour éviter les imports circulaires.
+Coûts recettes (COGS) + politiques de prix conseillés.
+Importe les enums depuis la recette (pas l'inverse) pour éviter les cycles.
 """
 
-from typing import Iterable, Dict
-from ..data import get_INGREDIENT_PRICES
+from enum import Enum, auto
+from typing import Tuple
+from ..domain import RestaurantType
+from ..domain.simple_recipe import SimpleRecipe, Technique, Complexity
+from ..data.ingredients import FoodGrade
 
 
-def compute_recipe_cogs(recipe) -> float:
-    """
-    Calcule le coût matière d'une recette (somme prix_unitaire * quantité).
-    La recette doit exposer `recipe.ingredients` sous forme [(nom, qty), ...].
-    """
-    prices = get_INGREDIENT_PRICES()
-    total = 0.0
-    for name, qty in getattr(recipe, "ingredients", []):
-        unit_price = float(prices.get(name, 0.0))
-        total += unit_price * float(qty)
-    return round(total, 2)
+# Multiplicateurs matière (€/kg effectif) par gamme
+GRADE_COST_MULT = {
+    FoodGrade.G1_FRAIS_BRUT:     1.00,
+    FoodGrade.G2_CONSERVE:       0.95,
+    FoodGrade.G3_SURGELE:        0.92,
+    FoodGrade.G4_CRU_PRET:       1.08,  # prêt à l'emploi souvent plus cher/kg net
+    FoodGrade.G5_CUIT_SOUS_VIDE: 1.12,
+}
+
+# Coût “main d’œuvre + énergie + consommables” par portion (euros)
+# (modèle simple, on affinera plus tard via RH réels)
+LABOUR_ENERGY_PER_PORTION_BASE = 0.40
+TECH_FACTOR = {
+    Technique.FROID:  0.8,
+    Technique.GRILLE: 1.1,
+    Technique.SAUTE:  1.0,
+    Technique.ROTI:   1.1,
+    Technique.FRIT:   1.15,
+    Technique.VAPEUR: 0.9,
+}
+CPLX_FACTOR = {
+    Complexity.SIMPLE:   1.0,
+    Complexity.COMPLEXE: 1.25,
+}
 
 
-def compute_menu_cogs(menu: Iterable) -> Dict[str, float]:
-    """
-    Retourne {nom_recette: cogs} pour un menu (liste de recettes).
-    """
-    out: Dict[str, float] = {}
-    for i, r in enumerate(menu):
-        key = getattr(r, "name", f"recette_{i}")
-        out[key] = compute_recipe_cogs(r)
-    return out
+def compute_recipe_cogs(r: SimpleRecipe) -> float:
+    """Coût matière + petit forfait MO/énergie/consommables (€/portion)."""
+    ing_price = r.main_ingredient.base_price_eur_per_kg * GRADE_COST_MULT.get(r.grade, 1.0)
+    mat_cost = ing_price * r.portion_kg
+    mo_cost = LABOUR_ENERGY_PER_PORTION_BASE * TECH_FACTOR.get(r.technique, 1.0) * CPLX_FACTOR.get(r.complexity, 1.0)
+    return round(mat_cost + mo_cost, 2)
 
-
-def compute_average_unit_cogs(menu: Iterable) -> float:
-    """
-    Coût matière unitaire moyen d'un menu (moyenne des COGS recettes).
-    Utile quand on ne choisit pas la recette précise du client.
-    """
-    menu = list(menu or [])
-    if not menu:
-        return 0.0
-    values = [compute_recipe_cogs(r) for r in menu]
-    return round(sum(values) / len(values), 2)
-
-# --- Pricing policies ---------------------------------------------------------
-from enum import Enum
 
 class PricePolicy(Enum):
-    """Stratégies de tarification utilisables par les recettes/menus."""
-    MARKUP = "markup"            # prix = COGS * (1 + x)        ; x = taux marge brute
-    TARGET_MARGIN = "target_margin"  # même chose que MARKUP (alias pédagogique)
-    ABSOLUTE = "absolute"        # prix = valeur absolue fournie
+    FOOD_COST_TARGET = auto()  # prix conseillé en visant % matière cible
+    MARGIN_PER_PORTION = auto()  # prix conseillé avec marge € cible
 
-def suggest_price_from_cogs(cogs: float, policy: "PricePolicy", value: float) -> float:
-    """
-    Calcule un prix conseillé en fonction du COGS et d'une politique.
-    - MARKUP / TARGET_MARGIN : value = taux de marge brute (ex: 0.7 => 70%)
-      prix = cogs * (1 + value)
-    - ABSOLUTE : value = prix souhaité
-    """
-    cogs = float(max(0.0, cogs))
-    if policy in (PricePolicy.MARKUP, PricePolicy.TARGET_MARGIN):
-        rate = max(0.0, float(value))
-        return round(cogs * (1.0 + rate), 2)
-    elif policy == PricePolicy.ABSOLUTE:
-        return round(max(float(value), 0.0), 2)
-    # fallback
-    return round(cogs, 2)
+
+FOOD_COST_TARGET = {
+    RestaurantType.FAST_FOOD: 0.30,
+    RestaurantType.BISTRO:    0.28,
+    RestaurantType.GASTRO:    0.25,
+}
+
+DEFAULT_MARGIN_PER_PORTION = {
+    RestaurantType.FAST_FOOD: 2.5,
+    RestaurantType.BISTRO:    4.0,
+    RestaurantType.GASTRO:    7.0,
+}
+
+
+def suggest_price(rtype: RestaurantType, recipe: SimpleRecipe,
+                  policy: PricePolicy = PricePolicy.FOOD_COST_TARGET) -> float:
+    cogs = compute_recipe_cogs(recipe)
+    if policy == PricePolicy.MARGIN_PER_PORTION:
+        margin = DEFAULT_MARGIN_PER_PORTION.get(rtype, 3.0)
+        return round(cogs + margin, 2)
+    # par défaut : % coût matière cible
+    fc = FOOD_COST_TARGET.get(rtype, 0.30)
+    price = cogs / max(0.05, fc)
+    return round(price, 2)
+
+
+def recipe_cost_and_price(rtype: RestaurantType, recipe: SimpleRecipe) -> Tuple[float, float]:
+    """Renvoie (cogs, prix_conseillé)."""
+    c = compute_recipe_cogs(recipe)
+    p = suggest_price(rtype, recipe, PricePolicy.FOOD_COST_TARGET)
+    return (c, p)
