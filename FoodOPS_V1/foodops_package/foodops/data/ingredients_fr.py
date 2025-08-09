@@ -1,10 +1,19 @@
+from enum import Enum, auto
 # -*- coding: utf-8 -*-
 """
 Catalogue d'ingrédients multi-gammes + perception qualité selon type de restaurant.
 """
 
-from dataclasses import dataclass
+
 from enum import Enum, auto
+from dataclasses import dataclass
+from typing import Dict, List
+from ..domain.restaurant_type import RestaurantType
+
+"""
+Catalogue d'ingrédients et de catégories pour le jeu FoodOPS
+"""
+from dataclasses import dataclass
 from typing import Dict, List
 from ..domain.restaurant_type import RestaurantType
 

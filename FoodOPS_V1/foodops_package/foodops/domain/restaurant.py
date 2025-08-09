@@ -1,125 +1,87 @@
-from .inventory import Inventory
-from ..domain.rh import StaffMember, Role, ALLOWED_ROLES, ROLE_PRODUCTIVITY, ROLE_BANK
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import List, TYPE_CHECKING
-from .local import Local
-from .stock import Inventory
-from ..rules.labour import recipe_prep_minutes_per_portion
+from typing import List, Optional, TYPE_CHECKING
+
+from .types import RestaurantType
+from .inventory import Inventory
+from .simple_recipe import SimpleRecipe
+from .staff import Employe, Role
 
 if TYPE_CHECKING:
-    from .recipe import Recipe  # uniquement pour les hints, pas à l’exécution
-
-class RestaurantType(Enum):
-    FAST_FOOD = "Fast Food"
-    BISTRO = "Bistrot"
-    GASTRO = "Gastronomique"
-
+    from .staff import Employe  # hints only
 @dataclass
 class Restaurant:
-    # --- Obligatoires (sans défaut) : d'abord ! ---
     name: str
     type: RestaurantType
-    local: Local
-    funds: float
-    equipment_invest: float
-
-    # --- Jeu / offre ---
-    menu: List["Recipe"] = field(default_factory=list)
-    notoriety: float = 0.5  # neutre
-
-    # --- Financement (gameplay) ---
-    loan_amount: float = 0.0
-    monthly_loan_payment: float = 0.0
-    charges_fixes: float = 0.0
-    monthly_bpi: float = 0.0
-    monthly_bank: float = 0.0
-
-    # --- Coûts récurrents / marketing ---
-    overheads: dict = field(default_factory=dict)
+    local: object
+    notoriety: float = 0.5
+    equipe: List["Employe"] = field(default_factory=list)
     marketing_budget: float = 0.0
-
-    # --- Stock ---
-    stock_value: float = 0.0
-
-    # --- Inventaire & COGS ---
-    inventory: Inventory = field(default_factory=Inventory)
-    turn_cogs: float = 0.0  # COGS reconnus à la production sur le tour
-
-    # --- Module RH ---
-    equipe: list = field(default_factory=list)
-
-    # banques RH par tour
-    prod_minutes_total: int = 0
-    prod_minutes_left: int = 0
-    service_minutes_total: int = 0
-    service_minutes_left: int = 0
-    rh_satisfaction: float = 0.80
-
-    def reset_rh_minutes(self):
-        prod = 0
-        serv = 0
-        for m in self.equipe:
-            if m.role not in ALLOWED_ROLES.get(self.type, set()):
-                continue
-            minutes = int(m.heures_par_tour * ROLE_PRODUCTIVITY.get(m.role, 0))
-            bank = ROLE_BANK.get(m.role)
-            if bank == "prod":
-                prod += minutes
-            elif bank == "service":
-                serv += minutes
-        self.prod_minutes_total = self.prod_minutes_left = prod
-        self.service_minutes_total = self.service_minutes_left = serv
-
-    def consume_prod_minutes(self, minutes: int) -> bool:
-        if minutes <= self.prod_minutes_left:
-            self.prod_minutes_left -= minutes
-            return True
-        return False
-
-    def consume_service_minutes(self, minutes: int) -> bool:
-        if minutes <= self.service_minutes_left:
-            self.service_minutes_left -= minutes
-            return True
-        return False
-
-    def update_rh_satisfaction(self):
-        # Utilisation combinée (prod + service)
-        tot = self.prod_minutes_total + self.service_minutes_total
-        used = (self.prod_minutes_total - self.prod_minutes_left) + (self.service_minutes_total - self.service_minutes_left)
-        util = (used / tot) if tot else 0.0
-        if util > 0.95:   delta = -0.06
-        elif util > 0.85: delta = -0.03
-        elif util < 0.35: delta = -0.02
-        elif util < 0.55: delta = +0.01
-        else:             delta = +0.02
-        self.rh_satisfaction = max(0.0, min(1.0, self.rh_satisfaction + delta))
-    type_resto: str = field(init=False)
-
-    # --- Comptabilité / Emprunts ---
+    menu: List[SimpleRecipe] = field(default_factory=list)
+    funds: float = 0.0
+    ledger: Optional[object] = None
+    equipment_invest: float = 0.0
     bpi_outstanding: float = 0.0
+    bpi_rate_annual: float = 0.0
+    monthly_bpi: float = 0.0
     bank_outstanding: float = 0.0
-    bpi_rate_annual: float = 0.025
-    bank_rate_annual: float = 0.045
-    ledger: object = None  # sera un Ledger
+    bank_rate_annual: float = 0.0
+    monthly_bank: float = 0.0
+    overheads: dict = field(default_factory=dict)
+    inventory: Inventory = field(default_factory=Inventory)
+    turn_cogs: float = 0.0
+    service_minutes_left: int = 0
+    kitchen_minutes_left: int = 0
 
-    def __post_init__(self):
-        self.type_resto = self.type.name
+    def add_recipe_to_menu(self, recipe: SimpleRecipe) -> None:
+        if all(r.name != recipe.name for r in self.menu):
+            self.menu.append(recipe)
 
-    @property
-    def capacity_per_turn(self) -> int:
-        # mensuel: 2 services * 30 jours
-        return self.local.capacite_clients * 2 * 30
+    def reset_rh_minutes(self) -> None:
+        total_service = 0
+        total_kitchen = 0
+        for e in (self.equipe or []):
+            if hasattr(e, "compute_minutes"):
+                e.compute_minutes()
+            total_service += getattr(e, "service_minutes", 0)
+            total_kitchen += getattr(e, "kitchen_minutes", 0)
+        self.service_minutes_left = int(total_service)
+        self.kitchen_minutes_left = int(total_kitchen)
 
-    def prepare_recipe(self, recipe, portions):
-        mins_pp = recipe_prep_minutes_per_portion(recipe)
-        mins_need = int(round(mins_pp * portions))
-        if not self.consume_prod_minutes(mins_need):
-            # calcul du max possible
-            max_portions = self.prod_minutes_left // max(1, int(mins_pp))
-            if max_portions <= 0:
-                print("❌ Équipe cuisine saturée ce tour.")
-                return
-            print(f"⚠️ Capacité cuisine limite: plafonné à {max_portions} portions.")
-            portions = max_portions
-            self.consume_prod_minutes(int(round(mins_pp * portions)))
+    def consume_service_minutes(self, minutes: int) -> None:
+        self.service_minutes_left = max(0, self.service_minutes_left - int(minutes))
+
+    def consume_kitchen_minutes(self, minutes: int) -> None:
+        self.kitchen_minutes_left = max(0, self.kitchen_minutes_left - int(minutes))
+
+    def update_rh_satisfaction(self) -> None:
+        total = (getattr(self, "service_minutes_left", 0) + getattr(self, "kitchen_minutes_left", 0))
+        used = 0
+        for e in (self.equipe or []):
+            used += getattr(e, "service_minutes", 0) + getattr(e, "kitchen_minutes", 0)
+        ratio = used / total if total else 0.0
+        # zone de confort 55–85% d’utilisation
+        if ratio > 0.95:
+            delta = -0.06
+        elif ratio > 0.85:
+            delta = -0.03
+        elif ratio < 0.35:
+            delta = -0.02
+        elif ratio < 0.55:
+            delta = +0.01
+        else:
+            delta = +0.02
+        self.rh_satisfaction = max(0.0, min(1.0, getattr(self, "rh_satisfaction", 0.8) + delta))
+
+    def _resolve_recipe_needs(self, recipe: SimpleRecipe) -> list:
+        """Retourne la liste des besoins ingrédients [(name, qty_kg)] pour une recette."""
+        needs = []
+        if hasattr(recipe, "main_ingredient") and hasattr(recipe, "portion_kg"):
+            needs.append((recipe.main_ingredient, recipe.portion_kg))
+        elif hasattr(recipe, "ingredients"):
+            # Poids par défaut : prot 0.15 kg, accompagnement 0.10 kg
+            for ing in recipe.ingredients:
+                name = ing[0] if isinstance(ing, tuple) else ing
+                grade = ing[1] if isinstance(ing, tuple) and len(ing) > 1 else None
+                qty = 0.15 if "prot" in name.lower() else 0.10
+                needs.append((name, qty))
+        return needs

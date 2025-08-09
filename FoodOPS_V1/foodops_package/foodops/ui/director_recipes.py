@@ -128,6 +128,28 @@ def run_recipes_shop(r: Restaurant, current_tour: int) -> None:
                 print("Saisie invalide.")
                 continue
 
+            from ..rules.labour import recipe_prep_minutes_per_portion
+
+            mins_per_portion = recipe_prep_minutes_per_portion(recipe)
+            mins_need = int(round(mins_per_portion * portions))
+
+            # vérifier la banque de minutes RH
+            if r.rh_minutes_left <= 0:
+                print("❌ Équipe saturée ce tour : plus de minutes de production disponibles.")
+                continue
+
+            if mins_need > r.rh_minutes_left:
+                max_portions = max(0, r.rh_minutes_left // max(1, int(mins_per_portion)))
+                if max_portions <= 0:
+                    print("❌ Équipe saturée : impossible de produire davantage ce tour.")
+                    continue
+                print(f"⚠️ Capacité RH limite : production plafonnée à {max_portions} portions (au lieu de {portions}).")
+                portions = max_portions
+                mins_need = int(round(mins_per_portion * portions))
+
+            # consomme minutes RH
+            _ = r.consume_rh_minutes(mins_need)
+
             ok, cogs_total, msg = inv.produce_from_recipe(recipe, portions, current_tour)
             if not ok:
                 print(f"❌ {msg}")

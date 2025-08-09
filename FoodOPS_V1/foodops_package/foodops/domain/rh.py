@@ -1,6 +1,6 @@
+from enum import Enum, auto
 # -*- coding: utf-8 -*-
 from dataclasses import dataclass
-from enum import Enum, auto
 from typing import Dict, Set
 from ..domain import RestaurantType
 

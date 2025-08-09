@@ -183,15 +183,16 @@ def bureau_directeur(equipe, type_resto, resto=None, current_tour=1):
             _action_ajuster_salaires(r)
         elif choice == "5":
             _action_marketing(r)
+        
         print("6. Recettes & Achats")
-# ...
-elif choice == "6":
-    from .director_recipes import run_recipes_shop
-    run_recipes_shop(resto, current_tour)  # tu dois faire passer current_tour depuis game.py
+        elif choice == "6":
+            from .director_recipes import run_recipes_shop
+            run_recipes_shop(resto, current_tour)  # tu dois faire passer current_tour depuis game.py
         elif choice == "7":
             _action_maintenance_qualite(r)
         elif choice == "8":
-            _action_formation_service(r)
+            # Ajoute ici l'action pour le choix 8
+            pass
         elif choice == "9":
             _action_recap_rh(r)
         elif choice == "0":
