@@ -9,19 +9,34 @@ from typing import Dict, Mapping, Optional
 
 from pydantic import BaseModel, Field
 
+from FoodOPS_V1.domain.market import Segment
+
 
 class Scenario(BaseModel):
-    """Profil de demande du marché pour un tour de jeu (1 mois)."""
+    """
+    Profil de demande du marché pour un tour de jeu (1 mois).
+
+    Exemple de scénario:
+    {
+    "quartier_etudiant": {
+        "name": "Quartier étudiant animé",
+        "population_total": 5000,
+        "segments_share": {
+            Segment.ETUDIANT: 0.6,
+            Segment.ACTIF: 0.2,
+            Segment.FAMILLE: 0.1,
+            Segment.TOURISTE: 0.05,
+            Segment.SENIOR: 0.05
+        },
+        "note": "Fort volume midi, sensibilité prix élevée."
+    }
+    """
 
     name: str
     nb_tours: int = Field(ge=1, description="Nombre de tours (1 tour = 1 mois)")
     population_total: int = Field(ge=0, description="Clients potentiels / mois")
-    segments_share: Dict[str, float]
+    segments_share: Dict[Segment, float]
     note: str = ""
-
-
-def _default_json_path() -> Path:
-    return Path(__file__).with_name("scenarios.json")
 
 
 def load_scenarios(json_path: Optional[Path | str] = None) -> Dict[str, Scenario]:
@@ -30,9 +45,7 @@ def load_scenarios(json_path: Optional[Path | str] = None) -> Dict[str, Scenario
     Structure JSON attendue: { "code": { "name": ..., "population_total": ..., "segments_share": {...}, "note": ... }, ... }
     """
 
-    path = Path(
-        "/home/lepagnol/Documents/Perso/Games/foodopsV0TL/FoodOPS_V1/data/scenarios.json"
-    )
+    path = Path(json_path)
     with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
 
@@ -40,7 +53,6 @@ def load_scenarios(json_path: Optional[Path | str] = None) -> Dict[str, Scenario
         raise ValueError(
             "Le fichier scenarios.json doit contenir un objet JSON racine (mapping code -> scenario)."
         )
-
     scenarios: Dict[str, Scenario] = {}
     for code, payload in data.items():
         new_payload = {**payload, "nb_tours": 12}
@@ -48,7 +60,8 @@ def load_scenarios(json_path: Optional[Path | str] = None) -> Dict[str, Scenario
     return scenarios
 
 
-CATALOG_SCENARIOS: Dict[str, Scenario] = load_scenarios()
+path = "/home/lepagnol/Documents/Perso/Games/foodopsV0TL/FoodOPS_V1/data/scenarios.json"
+CATALOG_SCENARIOS: Dict[str, Scenario] = load_scenarios(path)
 
 
 def get_default_scenario() -> Scenario:
@@ -62,11 +75,11 @@ def get_default_scenario() -> Scenario:
         name="Centre-ville mixte",
         population_total=8000,
         segments_share={
-            "étudiant": 0.25,
-            "actif": 0.40,
-            "famille": 0.15,
-            "touriste": 0.10,
-            "senior": 0.10,
+            Segment.ETUDIANT: 0.25,
+            Segment.ACTIF: 0.40,
+            Segment.FAMILLE: 0.15,
+            Segment.TOURISTE: 0.10,
+            Segment.SENIOR: 0.10,
         },
         note="Mix équilibré, budgets variés.",
     )

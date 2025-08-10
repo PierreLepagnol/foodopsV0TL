@@ -1,19 +1,6 @@
 from dataclasses import dataclass
 
 
-@dataclass
-class FinancingPlan:
-    apport: float
-    bank_loan: float
-    bpi_loan: float
-    frais_dossier: float
-    bank_monthly: float
-    bpi_monthly: float
-    bank_outstanding: float
-    bpi_outstanding: float
-    cash_initial: float
-
-
 # constantes gameplay
 APPORT_FIXE = 50_000.0
 BANQUE_FIXE = 250_000.0
@@ -25,9 +12,29 @@ DUREE_BANQUE = 60  # mois
 DUREE_BPI = 48  # mois
 
 
-def propose_financing(fonds_price: float, equip_default: float) -> FinancingPlan:
+@dataclass
+class FinancingPlan:
+    """Simple plan de financement retourné par `propose_financing`.
+
+    Champs clés: apports, prêts (banque/BPI), encours, mensualités et cash initial.
     """
-    Calcule un plan de financement réaliste selon les règles admin fixes.
+
+    apport: float
+    bank_loan: float
+    bpi_loan: float
+    frais_dossier: float
+    bank_monthly: float
+    bpi_monthly: float
+    bank_outstanding: float
+    bpi_outstanding: float
+    cash_initial: float
+
+
+def propose_financing(fonds_price: float, equip_default: float) -> FinancingPlan:
+    """Calcule un plan de financement réaliste selon des règles fixes.
+
+    Entrées: prix du fonds de commerce et investissement équipement par défaut.
+    Sortie: `FinancingPlan` avec prêts, mensualités et trésorerie initiale.
     """
     besoin_total = fonds_price + equip_default
 

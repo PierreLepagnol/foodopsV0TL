@@ -36,7 +36,7 @@ FoodOPS simulates operating restaurants over monthly turns. It models market dem
 
 ### Demand, attraction, and allocation
 - **Attraction score** (0..1) combines:
-  - **Concept–segment fit** (matrix by segment): structural alignment (e.g., fast food <==> students).
+  - **Concept-segment fit** (matrix by segment): structural alignment (e.g., fast food <==> students).
   - **Price fit**: menu median price vs segment budget and tolerance.
   - **Menu quality**: mean of recipe base qualities adjusted by concept expectations and RH satisfaction.
   - **Notoriety**: bounded 0..1, reduced when clients are lost.
@@ -48,7 +48,7 @@ FoodOPS simulates operating restaurants over monthly turns. It models market dem
 - **Allocation**: greedy fill per segment across ranked restaurants, respecting remaining capacity.
 
 ### Menu, pricing, and quality
-- **Menu generation**: concept-appropriate items from a catalog with ingredient tiers, techniques, and complexity; quality derived from ingredient–concept fit.
+- **Menu generation**: concept-appropriate items from a catalog with ingredient tiers, techniques, and complexity; quality derived from ingredient-concept fit.
 - **Costing**: per-portion cost = ingredient grade cost x portion + labour/energy baseline x technique x complexity.
 - **Price suggestion**: either a food-cost target by concept or a target margin per portion; stored as `price`/`selling_price` on recipes for gameplay.
 - **Perception**: concept expectations adjust perceived quality by grade hints (e.g., frozen penalized in gastronomy).
@@ -87,7 +87,7 @@ FoodOPS simulates operating restaurants over monthly turns. It models market dem
 ### Tuning levers
 - Concept service speed and minutes-per-cover
 - Segment budgets and tolerance
-- Scoring weights and concept–segment fit matrix
+- Scoring weights and concept-segment fit matrix
 - Cannibalization factor
 - Ingredient grade cost multipliers; technique/complexity factors
 - Food-cost targets or per-portion margin policy

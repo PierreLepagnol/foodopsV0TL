@@ -1,27 +1,20 @@
-from typing import List
+from FoodOPS_V1.domain.ingredients import CATALOG
 from FoodOPS_V1.domain.restaurant import Restaurant
-from FoodOPS_V1.data.ingredients import get_all_ingredients, Ingredient
-from FoodOPS_V1.domain.simple_recipe import SimpleRecipe, Technique, Complexity
-from FoodOPS_V1.rules.costing import recipe_cost_and_price
+from FoodOPS_V1.domain.recipe import Complexity, SimpleRecipe, Technique
+
+# from FoodOPS_V1.rules.costing import recipe_cost_and_price
+from FoodOPS_V1.utils import get_input
+
+from FoodOPS_V1.domain.recipe import recipe_prep_minutes_per_portion
 
 
-def _choose(prompt: str, max_i: int) -> int:
-    try:
-        v = int(input(prompt).strip())
-        if 1 <= v <= max_i:
-            return v
-    except:
-        pass
-    return -1
-
-
-def _fmt_money(x: float) -> str:
+def format_currency_eur(x: float) -> str:
     return f"{x:,.2f} €".replace(",", " ").replace(".", ",")
 
 
 def run_recipes_shop(r: Restaurant, current_tour: int) -> None:
     inv = r.inventory
-    catalog = get_all_ingredients()
+    catalog = CATALOG
 
     while True:
         print("\n=== Recettes & Achats ===")
@@ -47,32 +40,28 @@ def run_recipes_shop(r: Restaurant, current_tour: int) -> None:
             print("\nCatalogue ingrédients:")
             for i, ing in enumerate(catalog, start=1):
                 print(
-                    f"{i}) {ing.name} [{ing.grade.name}] — {_fmt_money(ing.base_priceformat_currency_eur_per_kg)}/kg"
+                    f"{i}) {ing.name} [{ing.grade.name}] — {format_currency_eur(ing.base_priceformat_currency_eur_per_kg)}/kg"
                 )
-            k = _choose("Sélection: ", len(catalog))
-            if k == -1:
-                print("Choix invalide.")
-                continue
+            k = get_input(
+                "Sélection: ", lambda x: 1 <= x <= len(catalog), "Choix invalide."
+            )
             ing = catalog[k - 1]
-            try:
-                kg = float(input("Quantité (kg) à acheter: ").replace(",", "."))
-                if kg <= 0:
-                    print("Quantité invalide.")
-                    continue
-            except:
-                print("Saisie invalide.")
-                continue
+            kg = get_input(
+                "Quantité (kg) à acheter: ",
+                lambda x: x > 0,
+                "Quantité invalide.",
+            )
 
             cost = round(ing.base_priceformat_currency_eur_per_kg * kg, 2)
             if r.funds < cost:
                 print(
-                    f"Trésorerie insuffisante. Coût = {_fmt_money(cost)}, Fonds = {_fmt_money(r.funds)}"
+                    f"Trésorerie insuffisante. Coût = {format_currency_eur(cost)}, Fonds = {format_currency_eur(r.funds)}"
                 )
                 continue
             r.funds -= cost
             inv.add_ingredient(ing, kg)
             print(
-                f"Acheté {kg:.2f} kg de {ing.name} [{ing.grade.name}] pour {_fmt_money(cost)}."
+                f"Acheté {kg:.2f} kg de {ing.name} [{ing.grade.name}] pour {format_currency_eur(cost)}."
             )
 
         elif ch == "3":
@@ -86,10 +75,7 @@ def run_recipes_shop(r: Restaurant, current_tour: int) -> None:
             print("\nIngrédients disponibles (par nom):")
             for i, n in enumerate(names, start=1):
                 print(f"{i}) {n}")
-            kn = _choose("Nom: ", len(names))
-            if kn == -1:
-                print("Choix invalide.")
-                continue
+            kn = get_input("Nom: ", lambda x: 1 <= x <= len(names), "Choix invalide.")
             name = names[kn - 1]
 
             # étape 2: choisir la variante (gamme) en stock
@@ -99,17 +85,16 @@ def run_recipes_shop(r: Restaurant, current_tour: int) -> None:
                 print(
                     f"{i}) {si.ingredient.name} [{si.ingredient.grade.name}] — {si.kg:.2f} kg dispo"
                 )
-            kv = _choose("Variante: ", len(variants))
-            if kv == -1:
-                print("Choix invalide.")
-                continue
+            kv = get_input(
+                "Variante: ", lambda x: 1 <= x <= len(variants), "Choix invalide."
+            )
             ing = variants[kv - 1].ingredient
 
             # étape 3: définir la recette simple (technique + complexité + portion_kg)
             print(
                 "\nTechnique: 1) FROID  2) GRILLE  3) SAUTE  4) ROTI  5) FRIT  6) VAPEUR"
             )
-            kt = _choose("> ", 6)
+            kt = get_input("> ", lambda x: 1 <= x <= 6, "Choix invalide.")
             tech = [
                 Technique.FROID,
                 Technique.GRILLE,
@@ -120,22 +105,21 @@ def run_recipes_shop(r: Restaurant, current_tour: int) -> None:
             ][kt - 1]
 
             print("Complexité: 1) SIMPLE  2) COMPLEXE")
-            kc = _choose("> ", 2)
+            kc = get_input("> ", lambda x: 1 <= x <= 2, "Choix invalide.")
             cplx = [Complexity.SIMPLE, Complexity.COMPLEXE][kc - 1]
 
-            try:
-                portion_kg = float(
-                    input("Portion (kg/portion), ex 0.16: ").replace(",", ".")
-                )
-                if portion_kg <= 0:
-                    print("Portion invalide.")
-                    continue
-            except:
-                print("Saisie invalide.")
-                continue
+            portion_kg = get_input(
+                "Portion (kg/portion), ex 0.16: ",
+                lambda x: x > 0,
+                "Portion invalide.",
+            )
 
             recipe_name = (
-                input("Nom de recette (ex: 'Burger boeuf', 'Saumon mi-cuit'): ").strip()
+                get_input(
+                    "Nom de recette (ex: 'Burger boeuf', 'Saumon mi-cuit'): ",
+                    lambda x: x != "",
+                    "Nom de recette invalide.",
+                )
                 or f"{name} - {tech.name.title()}"
             )
             # on crée la recette simple
@@ -143,22 +127,17 @@ def run_recipes_shop(r: Restaurant, current_tour: int) -> None:
                 recipe_name, ing, portion_kg, tech, cplx
             )
             # calcule prix conseillé selon type de resto
-            cogs, price = recipe_cost_and_price(r.type, recipe)
-            recipe.selling_price = price
+            # cogs, price = recipe_cost_and_price(r.type, recipe)
+            recipe.selling_price = recipe.suggest_price(r.type)
             print(
-                f"Prix conseillé: {_fmt_money(price)}  (COGS/portion ≈ {_fmt_money(cogs)})"
+                f"Prix conseillé: {format_currency_eur(recipe.selling_price)}  (COGS/portion ≈ {format_currency_eur(recipe.base_cost)})"
             )
 
-            try:
-                portions = int(input("Portions à produire: ").strip())
-                if portions <= 0:
-                    print("Nombre invalide.")
-                    continue
-            except:
-                print("Saisie invalide.")
-                continue
-
-            from FoodOPS_V1.rules.labour import recipe_prep_minutes_per_portion
+            portions = get_input(
+                "Portions à produire: ",
+                lambda x: x > 0,
+                "Nombre invalide.",
+            )
 
             mins_per_portion = recipe_prep_minutes_per_portion(recipe)
             mins_need = int(round(mins_per_portion * portions))
@@ -196,13 +175,14 @@ def run_recipes_shop(r: Restaurant, current_tour: int) -> None:
                 continue
 
             # on mémorise le COGS du tour sur le restaurant (reconnaissance à la production)
-            produced_cogs = getattr(r, "turn_cogs", 0.0)
-            r.turn_cogs = round(produced_cogs + cogs_total, 2)
+            r.turn_cogs = round(r.turn_cogs + cogs_total, 2)
             # mémoriser “dernière recette utilisée” si tu veux la remettre dans r.menu aussi
             if all(rr.name != recipe.name for rr in r.menu):
                 r.menu.append(recipe)
 
-            print(f"✅ {msg}  | COGS reconnu ce tour: {_fmt_money(cogs_total)}")
+            print(
+                f"✅ {msg}  | COGS reconnu ce tour: {format_currency_eur(cogs_total)}"
+            )
 
         elif ch == "4":
             if not inv.finished:
@@ -211,7 +191,7 @@ def run_recipes_shop(r: Restaurant, current_tour: int) -> None:
                 print("Produits finis (FIFO):")
                 for b in inv.finished:
                     print(
-                        f" - {b.recipe_name} : {b.portions} portions, prix {_fmt_money(b.selling_price)}, péremption T{b.expiry_tour}"
+                        f" - {b.recipe_name} : {b.portions} portions, prix {format_currency_eur(b.selling_price)}, péremption T{b.expiry_tour}"
                     )
 
         elif ch == "5":

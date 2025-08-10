@@ -1,4 +1,4 @@
-from FoodOPS_V1.core import create_restaurants
+from FoodOPS_V1.core import initialisation_restaurants
 from FoodOPS_V1.core.game import Game
 
 
@@ -15,7 +15,7 @@ def main():
     )
 
     # On ne passe plus de paramètre ici
-    restaurants = create_restaurants()
+    restaurants = initialisation_restaurants()
 
     game = Game(restaurants=restaurants)
     game.play()

@@ -25,7 +25,8 @@ Utilisation comme module (extrait) :
 
 ```python
 from FoodOPS_V1.core.game import Game
-from FoodOPS_V1.domain.restaurant import Restaurant, RestaurantType
+from FoodOPS_V1.domain.restaurant import Restaurant
+from FoodOPS_V1.domain.types import RestaurantType
 
 resto = Restaurant(
     name="Démo Bistro",
@@ -44,7 +45,7 @@ from FoodOPS_V1.domain.local import CATALOG_LOCALS
 from FoodOPS_V1.domain.restaurant import Restaurant, RestaurantType
 from FoodOPS_V1.domain.inventory import Inventory
 
-# from FoodOPS_V1.domain.simple_recipe import SimpleRecipe
+# from FoodOPS_V1.domain.recipe import SimpleRecipe
 from FoodOPS_V1.rules.recipe_factory import build_menu_for_type
 
 
@@ -62,7 +63,7 @@ def build_menu_for(resto_type):
     - list: une liste d'objets recette (implémentations du domaine).
 
     Exemple
-    >>> from FoodOPS_V1.domain.restaurant import RestaurantType
+    >>> from FoodOPS_V1.domain.types import RestaurantType
     >>> menu = build_menu_for(RestaurantType.BISTRO)
     >>> len(menu) >= 2
     True

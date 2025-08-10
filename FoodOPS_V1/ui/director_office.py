@@ -1,6 +1,11 @@
 # foodops/ui/director_office.py
 
 
+from FoodOPS_V1.domain.restaurant import Restaurant
+
+from FoodOPS_V1.ui.director_recipes import run_recipes_shop
+
+
 def format_currency_eur(amount: float) -> str:
     """
     Format a float amount as a Euro currency string with proper formatting.
@@ -62,30 +67,30 @@ def _prompt_int(prompt: str, default: int = 0) -> int:
         return default
 
 
-def _ensure_hr_fields(r):
-    """
-    Ensure the restaurant-like object `r` exposes expected HR/ops fields.
+# def _ensure_hr_fields(r:Restaurant):
+#     """
+#     Ensure the restaurant-like object `r` exposes expected HR/ops fields.
 
-    This avoids AttributeError later by creating attributes with sensible
-    defaults only when they are missing on the object.
-    """
-    # Team list: simple list of employee objects
-    if not hasattr(r, "equipe"):
-        r.equipe = []
-    # Global salary delta applied to all salaries (e.g., market alignment)
-    if not hasattr(r, "hr_salary_delta"):
-        r.hr_salary_delta = 0.0  # % global vs marché
-    # Monthly marketing budget (used to nudge notoriety and overheads)
-    if not hasattr(r, "marketing_budget"):
-        r.marketing_budget = 0.0
-    # Menu pricing markup relative to recommended/base prices
-    if not hasattr(r, "pricing_markup"):
-        r.pricing_markup = 0.0  # % appliqué sur les prix conseillés
-    # Quality and service indices used in simple demand heuristics
-    if not hasattr(r, "quality_index"):
-        r.quality_index = 0.6
-    if not hasattr(r, "service_index"):
-        r.service_index = 0.6
+#     This avoids AttributeError later by creating attributes with sensible
+#     defaults only when they are missing on the object.
+#     """
+#     # Team list: simple list of employee objects
+#     if not hasattr(r, "equipe"):
+#         r.equipe = []
+#     # Global salary delta applied to all salaries (e.g., market alignment)
+#     if not hasattr(r, "hr_salary_delta"):
+#         r.hr_salary_delta = 0.0  # % global vs marché
+#     # Monthly marketing budget (used to nudge notoriety and overheads)
+#     if not hasattr(r, "marketing_budget"):
+#         r.marketing_budget = 0.0
+#     # Menu pricing markup relative to recommended/base prices
+#     if not hasattr(r, "pricing_markup"):
+#         r.pricing_markup = 0.0  # % appliqué sur les prix conseillés
+#     # Quality and service indices used in simple demand heuristics
+#     if not hasattr(r, "quality_index"):
+#         r.quality_index = 0.6
+#     if not hasattr(r, "service_index"):
+#         r.service_index = 0.6
 
 
 def _hr_cost_month(r) -> float:
@@ -107,7 +112,7 @@ def _hr_cost_month(r) -> float:
     return round(total, 2)
 
 
-def _show_team(r):
+def _show_team(r: Restaurant):
     """
     Print a compact view of the team and the current monthly cost.
     """
@@ -127,7 +132,7 @@ def _show_team(r):
 # ——— Actions ———
 
 
-def _action_recruter(r):
+def _action_recruter(r: Restaurant):
     """
     Interactive recruitment flow using a minimal fictional candidate pool.
 
@@ -193,7 +198,7 @@ def _action_recruter(r):
         print("Annulé.")
 
 
-def _action_licencier(r):
+def _action_licencier(r: Restaurant):
     """
     Interactive flow to fire an employee from the team.
 
@@ -215,7 +220,7 @@ def _action_licencier(r):
         print("Annulé.")
 
 
-def _action_ajuster_salaires(r):
+def _action_ajuster_salaires(r: Restaurant):
     """
     Set a global salary delta for the team.
 
@@ -229,7 +234,7 @@ def _action_ajuster_salaires(r):
     print(f"Delta salaires appliqué: {r.hr_salary_delta * 100:.1f}%")
 
 
-def _action_marketing(r):
+def _action_marketing(r: Restaurant):
     """
     Configure the monthly marketing budget and its effects.
 
@@ -253,11 +258,11 @@ def _action_marketing(r):
     )
 
 
-def _action_prix_menu(r):
+def _action_prix_menu(r: Restaurant):
     """
     Configure the menu pricing markup.
 
-    Reads a percentage from the user, converts it to a 0.0–1.0 ratio, and
+    Reads a percentage from the user, converts it to a 0.0-1.0 ratio, and
     stores it on `r.pricing_markup` (clamped between 0% and 100%).
     """
     mk = (
@@ -271,7 +276,7 @@ def _action_prix_menu(r):
     print(f"Markup menu réglé à {r.pricing_markup * 100:.0f}%")
 
 
-def _action_maintenance_qualite(r):
+def _action_maintenance_qualite(r: Restaurant):
     """
     One-off spending to improve the quality index.
 
@@ -291,7 +296,7 @@ def _action_maintenance_qualite(r):
         print("Aucun changement.")
 
 
-def _action_formation_service(r):
+def _action_formation_service(r: Restaurant):
     """
     One-off spending to improve the service index.
 
@@ -311,7 +316,7 @@ def _action_formation_service(r):
         print("Aucun changement.")
 
 
-def _action_recap_rh(r):
+def _action_recapacity_rh(r: Restaurant):
     """
     Display a quick recap of the HR situation (team and monthly cost).
     """
@@ -356,7 +361,7 @@ def bureau_directeur(equipe, type_resto, resto=None, current_tour=1):
 
         bureau_directeur._r = Dummy()
     r = bureau_directeur._r
-    _ensure_hr_fields(r)
+    # _ensure_hr_fields(r)
 
     while True:
         print("\n=== Bureau du Directeur ===")
@@ -383,18 +388,14 @@ def bureau_directeur(equipe, type_resto, resto=None, current_tour=1):
         elif choice == "5":
             _action_marketing(r)
         elif choice == "6":
-            from FoodOPS_V1.ui.director_recipes import run_recipes_shop
-
-            run_recipes_shop(
-                resto, current_tour
-            )  # tu dois faire passer current_tour depuis game.py
+            run_recipes_shop(resto, current_tour)
+            # tu dois faire passer current_tour depuis game.py
         elif choice == "7":
             _action_maintenance_qualite(r)
         elif choice == "8":
-            # Ajoute ici l'action pour le choix 8
-            pass
+            _action_formation_service(r)
         elif choice == "9":
-            _action_recap_rh(r)
+            _action_recapacity_rh(r)
         elif choice == "0":
             break
         else:

@@ -1,24 +1,21 @@
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import List, Optional
 
+from pydantic import Field
+
+from FoodOPS_V1.domain.types import RestaurantType
 from FoodOPS_V1.domain.inventory import Inventory
-from FoodOPS_V1.domain.simple_recipe import SimpleRecipe
+from FoodOPS_V1.domain.recipe import SimpleRecipe
 from FoodOPS_V1.domain.staff import Employe
-
-
-class RestaurantType(Enum):
-    FAST_FOOD = "FAST FOOD"
-    BISTRO = "BISTRO"
-    GASTRO = "GASTRONOMIQUE"
+from FoodOPS_V1.domain.local import Local
 
 
 @dataclass
 class Restaurant:
     name: str
     type: RestaurantType
-    local: object
-    notoriety: float = 0.5
+    local: Local
+    notoriety: float = Field(default=0.5, strict=True, ge=0, le=1)
     equipe: List["Employe"] = field(default_factory=list)
     marketing_budget: float = 0.0
     menu: List[SimpleRecipe] = field(default_factory=list)
@@ -31,11 +28,12 @@ class Restaurant:
     bank_outstanding: float = 0.0
     bank_rate_annual: float = 0.0
     monthly_bank: float = 0.0
-    overheads: dict = field(default_factory=dict)
+    charges_reccurentes: float = 0.0
     inventory: Inventory = field(default_factory=Inventory)
     turn_cogs: float = 0.0
     service_minutes_left: int = 0
     kitchen_minutes_left: int = 0
+    rh_satisfaction: float = 0.0
 
     def add_recipe_to_menu(self, recipe: SimpleRecipe) -> None:
         if all(r.name != recipe.name for r in self.menu):
@@ -66,7 +64,7 @@ class Restaurant:
         for e in self.equipe or []:
             used += getattr(e, "service_minutes", 0) + getattr(e, "kitchen_minutes", 0)
         ratio = used / total if total else 0.0
-        # zone de confort 55–85% d'utilisation
+        # zone de confort 55-85% d'utilisation
         if ratio > 0.95:
             delta = -0.06
         elif ratio > 0.85:

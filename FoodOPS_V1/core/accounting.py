@@ -5,7 +5,17 @@ Sans TVA pour l'instant, focus pédagogie.
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple
-from FoodOPS_V1.data.accounting_params import EQUIP_AMORT_YEARS
+
+from enum import Enum
+from pydantic import BaseModel
+
+# Amortissement linéaire des équipements (années)
+EQUIP_AMORT_YEARS = 5
+
+
+class TypeOperation(Enum):
+    DEBIT = "D"
+    CREDIT = "C"
 
 
 @dataclass
@@ -32,7 +42,9 @@ class Ledger:
 
     entries: List[Entry] = field(default_factory=list)
 
-    def post(self, tour: int, label: str, lines: List[Tuple[str, float, str]]):
+    def post(
+        self, tour: int, label: str, lines: List[Tuple[str, float, TypeOperation]]
+    ):
         """Ajoute une écriture au grand livre après contrôle d'équilibre.
 
         Args:
@@ -44,10 +56,11 @@ class Ledger:
             ValueError: Si la somme des débits n'est pas égale à la somme des crédits.
         """
         # Contrôle d'équilibre (débit = crédit) avec un arrondi de sécurité
-        d = sum(m for c, m, dc in lines if dc == "D")
-        c = sum(m for c, m, dc in lines if dc == "C")
+        d = sum(m for c, m, dc in lines if dc == TypeOperation.DEBIT)
+        c = sum(m for c, m, dc in lines if dc == TypeOperation.CREDIT)
         if round(d - c, 2) != 0.0:
             raise ValueError(f"Écriture non équilibrée '{label}': {d} != {c}")
+
         self.entries.append(Entry(tour=tour, lines=lines, label=label))
 
     def balance_accounts(self, upto_tour: int = None) -> Dict[str, float]:
@@ -92,11 +105,7 @@ def month_amortization(amount: float) -> float:
 
 
 def post_opening(
-    ledger: Ledger,
-    equity: float,
-    cash: float,
-    equipment: float,
-    loans_total: float,
+    ledger: Ledger, equity: float, cash: float, equipment: float, loans_total: float
 ):
     """Passe l'écriture d'ouverture en équilibrant actifs et passifs.
 
@@ -110,24 +119,27 @@ def post_opening(
     """
     lines: List[Tuple[str, float, str]] = []
     if cash > 0:
-        lines.append(("512", cash, "D"))
+        lines.append(("512", cash, TypeOperation.DEBIT))
     if equipment > 0:
-        lines.append(("215", equipment, "D"))
+        lines.append(("215", equipment, TypeOperation.DEBIT))
     if loans_total > 0:
-        lines.append(("164", loans_total, "C"))
+        lines.append(("164", loans_total, TypeOperation.CREDIT))
+
     # Capitaux propres = équilibre
     # Total D - Total C = capitaux propres (C si D>C)
-    total_d = sum(m for a, m, dc in lines if dc == "D")
-    total_c = sum(m for a, m, dc in lines if dc == "C")
+
+    total_d = sum(m for a, m, dc in lines if dc == TypeOperation.DEBIT)
+    total_c = sum(m for a, m, dc in lines if dc == TypeOperation.CREDIT)
+
     # Si equity donné, on force l'équilibre avec 101 au passif
     if equity is not None:
-        lines.append(("101", equity, "C"))
+        lines.append(("101", equity, TypeOperation.CREDIT))
     else:
         diff = total_d - total_c
         if diff > 0:
-            lines.append(("101", diff, "C"))
+            lines.append(("101", diff, TypeOperation.CREDIT))
         elif diff < 0:
-            lines.append(("101", -diff, "D"))
+            lines.append(("101", -diff, TypeOperation.DEBIT))
     ledger.post(0, "Ouverture", lines)
 
 
@@ -145,8 +157,8 @@ def post_sales(ledger: Ledger, tour: int, ca: float):
         tour,
         "Ventes",
         [
-            ("512", ca, "D"),
-            ("70", ca, "C"),
+            ("512", ca, TypeOperation.DEBIT),
+            ("70", ca, TypeOperation.CREDIT),
         ],
     )
 
@@ -165,8 +177,8 @@ def post_cogs(ledger: Ledger, tour: int, cogs: float):
         tour,
         "Achats consommés (matières)",
         [
-            ("60", cogs, "D"),
-            ("512", cogs, "C"),
+            ("60", cogs, TypeOperation.DEBIT),
+            ("512", cogs, TypeOperation.CREDIT),
         ],
     )
 
@@ -185,8 +197,8 @@ def post_services_ext(ledger: Ledger, tour: int, amount: float):
         tour,
         "Services extérieurs (loyer, abonnements, marketing)",
         [
-            ("61", amount, "D"),
-            ("512", amount, "C"),
+            ("61", amount, TypeOperation.DEBIT),
+            ("512", amount, TypeOperation.CREDIT),
         ],
     )
 
@@ -205,8 +217,8 @@ def post_payroll(ledger: Ledger, tour: int, payroll_total: float):
         tour,
         "Charges de personnel",
         [
-            ("64", payroll_total, "D"),
-            ("512", payroll_total, "C"),
+            ("64", payroll_total, TypeOperation.DEBIT),
+            ("512", payroll_total, TypeOperation.CREDIT),
         ],
     )
 
@@ -225,8 +237,8 @@ def post_depreciation(ledger: Ledger, tour: int, dotation: float):
         tour,
         "Dotations aux amortissements",
         [
-            ("681", dotation, "D"),
-            ("2815", dotation, "C"),
+            ("681", dotation, TypeOperation.DEBIT),
+            ("2815", dotation, TypeOperation.CREDIT),
         ],
     )
 
@@ -247,13 +259,75 @@ def post_loan_payment(
         return
     lines: List[Tuple[str, float, str]] = []
     if interest > 0:
-        lines += [("66", interest, "D"), ("512", interest, "C")]
+        lines += [
+            ("66", interest, TypeOperation.DEBIT),
+            ("512", interest, TypeOperation.CREDIT),
+        ]
     if principal > 0:
-        lines += [("164", principal, "D"), ("512", principal, "C")]
+        lines += [
+            ("164", principal, TypeOperation.DEBIT),
+            ("512", principal, TypeOperation.CREDIT),
+        ]
     ledger.post(tour, f"Remboursement {label}", lines)
 
 
 # ------- États (compte de résultat / bilan) -------
+
+
+class Actif(BaseModel):
+    immobilisations_brutes: float
+    amortissements_cumules: float
+    trésorerie: float
+    immobilisations_nettes: float
+    total: float
+
+
+class Passif(BaseModel):
+    capitaux_propres: float
+    emprunts: float
+    total: float
+
+
+class BalanceSheet(BaseModel):
+    actif: Actif
+    passif: Passif
+
+
+def balance_sheet(bal: Dict[str, float]) -> BalanceSheet:
+    """Construit un bilan simplifié (actif/passif) à partir des soldes.
+
+    Args:
+        bal: Dictionnaire `{compte: solde}` (Débit - Crédit) tel que renvoyé
+            par `Ledger.balance_accounts`.
+
+    Returns:
+        Un dictionnaire structuré avec deux clés `Actif` et `Passif`.
+    """
+    immobilisations_brutes = bal.get("215", 0.0)
+    amortissements_cumules = -bal.get("2815", 0.0)
+    trésorerie = bal.get("512", 0.0)
+
+    actif = Actif(
+        immobilisations_brutes=immobilisations_brutes,
+        amortissements_cumules=amortissements_cumules,
+        trésorerie=trésorerie,
+        immobilisations_nettes=immobilisations_brutes + amortissements_cumules,
+        total=(immobilisations_brutes + amortissements_cumules) + trésorerie,
+    )
+
+    passif = Passif(
+        capitaux_propres=-bal.get("101", 0.0),
+        emprunts=-bal.get("164", 0.0),
+        total=bal.get("101", 0.0) + bal.get("164", 0.0),
+    )
+
+    return BalanceSheet(
+        actif=actif,
+        passif=passif,
+    )
+
+
+# Inutilisé pour l'instant
 
 
 def income_statement(bal: Dict[str, float]) -> Dict[str, float]:
@@ -291,44 +365,4 @@ def income_statement(bal: Dict[str, float]) -> Dict[str, float]:
         "Résultat d'exploitation": rex,
         "Résultat courant": rca,
         "Résultat net": res_net,
-    }
-
-
-def balance_sheet(bal: Dict[str, float]) -> Dict[str, Dict[str, float]]:
-    """Construit un bilan simplifié (actif/passif) à partir des soldes.
-
-    Args:
-        bal: Dictionnaire `{compte: solde}` (Débit - Crédit) tel que renvoyé
-            par `Ledger.balance_accounts`.
-
-    Returns:
-        Un dictionnaire structuré avec deux clés `Actif` et `Passif`.
-    """
-    actif_brut = {
-        "Immobilisations (215)": bal.get("215", 0.0),
-        "Amortissements cumulés (2815)": -bal.get("2815", 0.0),
-        "Trésorerie (512)": bal.get("512", 0.0),
-    }
-    immobilisations_nettes = (
-        actif_brut["Immobilisations (215)"]
-        + actif_brut["Amortissements cumulés (2815)"]
-    )
-    actif_total = immobilisations_nettes + actif_brut["Trésorerie (512)"]
-
-    passif = {
-        "Capitaux propres (101)": -bal.get("101", 0.0),
-        "Emprunts (164)": -bal.get("164", 0.0),
-    }
-    passif_total = passif["Capitaux propres (101)"] + passif["Emprunts (164)"]
-
-    return {
-        "Actif": {
-            **actif_brut,
-            "Immobilisations nettes": immobilisations_nettes,
-            "Total Actif": actif_total,
-        },
-        "Passif": {
-            **passif,
-            "Total Passif": passif_total,
-        },
     }

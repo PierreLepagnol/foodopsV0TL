@@ -2,13 +2,13 @@
 """
 Définitions de base (Enums + dataclass Ingredient) ET pont vers le catalogue FR.
 D'autres modules importent parfois `foodops.domain.ingredients`, donc on ré-exporte
-les fonctions/datas utiles (QUALITY_PERCEPTION, get_all_ingredients) depuis data/ingredients_fr.
 """
 
 import json
 from enum import Enum
 from typing import Dict, List
-from pydantic import BaseModel, field_validator, ValidationError
+from pydantic import BaseModel, Field, ValidationError
+from FoodOPS_V1.domain.types import RestaurantType
 
 
 class IngredientCategory(Enum):
@@ -24,9 +24,10 @@ class IngredientCategory(Enum):
 
 
 class FoodGrade(Enum):
-    """Gammes pro FR (1→5). On s'en sert pour coût/qualité/coût de main d'oeuvre implicite."""
+    """Gammes pro FR (1→5).
+    On s'en sert pour coût/qualité/coût de main d'oeuvre implicite.
+    """
 
-    # NB: Les multiplicateurs fins sont dans rules/costing.py
     G1_FRAIS_BRUT = "G1_FRAIS_BRUT"  # 1ère gamme : frais bruts
     G2_CONSERVE = "G2_CONSERVE"  # 2e gamme : conserve/semi-conserve
     G3_SURGELE = "G3_SURGELE"  # 3e gamme : surgelé
@@ -34,51 +35,41 @@ class FoodGrade(Enum):
     G5_CUIT_SOUS_VIDE = "G5_CUIT_SOUS_VIDE"  # 5e gamme : cuit/vide/régénération
 
 
-class IngredientTier(BaseModel):
-    """Represents the tier/access level for ingredients in different restaurant types."""
-
-    ALL: str = "ALL"
-    BISTRO_PLUS: str = "BISTRO+"
-    GASTRO_ONLY: str = "GASTRO_ONLY"
-
-
-class FitScoreKeys(BaseModel):
-    """Represents the restaurant types used for fit scoring."""
-
-    FAST_FOOD: str = "FAST_FOOD"
-    BISTRO: str = "BISTRO"
-    GASTRO: str = "GASTRO"
-
-
 class CatalogConfig(BaseModel):
     """Configuration model for ingredient catalog validation."""
 
-    tiers_allowed: List[str] = ["ALL", "BISTRO+", "GASTRO_ONLY"]
-    fit_score_keys: List[str] = ["FAST_FOOD", "BISTRO", "GASTRO"]
-
-    @field_validator("tiers_allowed")
-    @classmethod
-    def validate_tiers(cls, v):
-        allowed_tiers = {"ALL", "BISTRO+", "GASTRO_ONLY"}
-        for tier in v:
-            if tier not in allowed_tiers:
-                raise ValueError(
-                    f"Invalid tier: {tier}. Must be one of {allowed_tiers}"
-                )
-        return v
-
-    @field_validator("fit_score_keys")
-    @classmethod
-    def validate_fit_keys(cls, v):
-        allowed_keys = {"FAST_FOOD", "BISTRO", "GASTRO"}
-        for key in v:
-            if key not in allowed_keys:
-                raise ValueError(
-                    f"Invalid fit score key: {key}. Must be one of {allowed_keys}"
-                )
-        return v
+    tiers_allowed: List[str] = Field(default=["ALL", "BISTRO+", "GASTRO_ONLY"])
+    fit_score_keys: List[str] = Field(default=["FAST_FOOD", "BISTRO", "GASTRO"])
 
 
+# Coefficients de perception qualité selon le type de resto et la gamme
+# 1.0 = qualité perçue optimale, < 1.0 = perçu comme moins qualitatif
+QUALITY_PERCEPTION: Dict[RestaurantType, Dict[FoodGrade, float]] = {
+    RestaurantType.FAST_FOOD: {
+        FoodGrade.G1_FRAIS_BRUT: 1.0,
+        FoodGrade.G2_CONSERVE: 0.9,
+        FoodGrade.G3_SURGELE: 0.95,
+        FoodGrade.G4_CRU_PRET: 1.0,
+        FoodGrade.G5_CUIT_SOUS_VIDE: 0.95,
+    },
+    RestaurantType.BISTRO: {
+        FoodGrade.G1_FRAIS_BRUT: 1.0,
+        FoodGrade.G2_CONSERVE: 0.8,
+        FoodGrade.G3_SURGELE: 0.85,
+        FoodGrade.G4_CRU_PRET: 0.95,
+        FoodGrade.G5_CUIT_SOUS_VIDE: 0.9,
+    },
+    RestaurantType.GASTRO: {
+        FoodGrade.G1_FRAIS_BRUT: 1.0,
+        FoodGrade.G2_CONSERVE: 0.6,
+        FoodGrade.G3_SURGELE: 0.5,  # saumon surgelé en gastro => grosse pénalité
+        FoodGrade.G4_CRU_PRET: 0.85,
+        FoodGrade.G5_CUIT_SOUS_VIDE: 0.8,
+    },
+}
+
+
+# -------------
 class Ingredient(BaseModel):
     name: str
     categories: List[IngredientCategory]
@@ -86,9 +77,7 @@ class Ingredient(BaseModel):
     perish_days: int
     fit_score: Dict[str, float]
     tier: str = "ALL"
-    # grade: FoodGrade
-
-    # base_priceformat_currency_eur_per_kg: float
+    grade: FoodGrade = FoodGrade.G1_FRAIS_BRUT
 
 
 def load_catalog_config(filepath: str) -> Dict[str, Ingredient]:
@@ -140,3 +129,112 @@ def load_catalog_config(filepath: str) -> Dict[str, Ingredient]:
 CATALOG = load_catalog_config(
     "/home/lepagnol/Documents/Perso/Games/foodopsV0TL/FoodOPS_V1/data/catalog_config.json"
 )
+
+
+def get_all_ingredients() -> List[Ingredient]:
+    """
+    Retourne une liste d'ingrédients avec plusieurs gammes disponibles.
+    """
+    ingredients: List[Ingredient] = []
+
+    # Viandes
+    ingredients += [
+        Ingredient(
+            "Steak haché",
+            12.0,
+            IngredientCategory.VIANDE,
+            FoodGrade.G1_FRAIS_BRUT,
+            5,
+        ),
+        Ingredient(
+            "Steak haché",
+            9.0,
+            IngredientCategory.VIANDE,
+            FoodGrade.G3_SURGELE,
+            180,
+        ),
+        Ingredient(
+            "Poulet",
+            11.0,
+            IngredientCategory.VIANDE,
+            FoodGrade.G1_FRAIS_BRUT,
+            5,
+        ),
+        Ingredient("Poulet", 8.0, IngredientCategory.VIANDE, FoodGrade.G3_SURGELE, 180),
+    ]
+
+    # Poissons
+    ingredients += [
+        Ingredient(
+            "Saumon",
+            20.0,
+            IngredientCategory.POISSON,
+            FoodGrade.G1_FRAIS_BRUT,
+            3,
+        ),
+        Ingredient(
+            "Saumon",
+            15.0,
+            IngredientCategory.POISSON,
+            FoodGrade.G3_SURGELE,
+            180,
+        ),
+        Ingredient(
+            "Cabillaud",
+            16.0,
+            IngredientCategory.POISSON,
+            FoodGrade.G1_FRAIS_BRUT,
+            3,
+        ),
+        Ingredient(
+            "Cabillaud",
+            12.0,
+            IngredientCategory.POISSON,
+            FoodGrade.G3_SURGELE,
+            180,
+        ),
+    ]
+
+    # Féculents
+    ingredients += [
+        Ingredient("Riz", 2.5, IngredientCategory.FECULENT, FoodGrade.G2_CONSERVE, 365),
+        Ingredient("Riz", 2.0, IngredientCategory.FECULENT, FoodGrade.G3_SURGELE, 180),
+    ]
+
+    # Produits laitiers
+    ingredients += [
+        Ingredient(
+            "Fromage cheddar",
+            7.0,
+            IngredientCategory.PRODUIT_LAITIER,
+            FoodGrade.G3_SURGELE,
+            180,
+        ),
+        Ingredient(
+            "Fromage cheddar",
+            8.5,
+            IngredientCategory.PRODUIT_LAITIER,
+            FoodGrade.G1_FRAIS_BRUT,
+            15,
+        ),
+    ]
+
+    # oeufs
+    ingredients += [
+        Ingredient(
+            "oeufs",
+            4.0,
+            IngredientCategory.PRODUIT_LAITIER,
+            FoodGrade.G1_FRAIS_BRUT,
+            15,
+        ),
+        Ingredient(
+            "oeufs",
+            5.5,
+            IngredientCategory.PRODUIT_LAITIER,
+            FoodGrade.G5_CUIT_SOUS_VIDE,
+            60,
+        ),
+    ]
+
+    return ingredients

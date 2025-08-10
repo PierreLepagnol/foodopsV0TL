@@ -3,7 +3,7 @@
         "name": "Quartier étudiant animé",
         "population_total": 5000,
         "segments_share": {
-            "étudiant": 0.6,
+            "etudiant": 0.6,
             "actif": 0.2,
             "famille": 0.1,
             "touriste": 0.05,
@@ -15,7 +15,7 @@
         "name": "Centre-ville mixte",
         "population_total": 8000,
         "segments_share": {
-            "étudiant": 0.25,
+            "etudiant": 0.25,
             "actif": 0.4,
             "famille": 0.15,
             "touriste": 0.1,
@@ -27,7 +27,7 @@
         "name": "Zone touristique",
         "population_total": 7000,
         "segments_share": {
-            "étudiant": 0.1,
+            "etudiant": 0.1,
             "actif": 0.25,
             "famille": 0.15,
             "touriste": 0.4,

@@ -15,8 +15,8 @@ Les docstrings incluent des exemples doctest pour faciliter la validation rapide
 from typing import List, Tuple, Dict
 import random
 
-from FoodOPS_V1.domain.simple_recipe import SimpleRecipe, Technique, Complexity
-from FoodOPS_V1.domain.restaurant import RestaurantType
+from FoodOPS_V1.domain.recipe import SimpleRecipe, Technique, Complexity
+from FoodOPS_V1.domain.types import RestaurantType
 from FoodOPS_V1.domain.ingredients import (
     IngredientCategory,
     FoodGrade,
@@ -95,7 +95,7 @@ def _allowed_for_type(item: Ingredient, rtype: RestaurantType) -> bool:
     Exemple
     -------
     >>> from FoodOPS_V1.domain.ingredients import CATALOG
-    >>> from FoodOPS_V1.domain.restaurant import RestaurantType
+    >>> from FoodOPS_V1.domain.types import RestaurantType
     >>> it = CATALOG["Homard"]
     >>> _allowed_for_type(it, RestaurantType.GASTRO)
     True

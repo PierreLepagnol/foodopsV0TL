@@ -1,12 +1,12 @@
 # foodops/ui/results_view.py
 
-from typing import Optional
+from FoodOPS_V1.domain.types import TurnResult
 
 
 # ---------- Helpers de formatage ----------
 
 
-def _fmtformat_currency_eur(x: float) -> str:
+def format_to_euro(x: float) -> str:
     try:
         return f"{float(x):,.2f} €".replace(",", " ").replace(".", ",")
     except Exception:
@@ -41,7 +41,7 @@ def _num(x) -> int:
 # ---------- Impression d'un tour ----------
 
 
-def print_turn_result(tr) -> None:
+def print_turn_result(resultat_tour: TurnResult) -> None:
     """
     Attend un objet 'tr' (SimpleNamespace ou dataclass) avec au minimum :
       restaurant_name: str
@@ -59,26 +59,26 @@ def print_turn_result(tr) -> None:
       funds_end: float
     """
 
-    name = getattr(tr, "restaurant_name", "Restaurant")
-    tour = getattr(tr, "tour", 0)
+    name = resultat_tour.restaurant_name
+    tour = resultat_tour.tour
 
     # Demande & capacité
-    clients_attr = _num(getattr(tr, "clients_attr", 0))
-    clients_serv = _num(getattr(tr, "clients_serv", 0))
-    capacity = _num(getattr(tr, "capacity", 0))
+    clients_attr = _num(resultat_tour.clients_attr)
+    clients_serv = _num(resultat_tour.clients_serv)
+    capacity = _num(resultat_tour.capacity)
 
     # Prix & ventes
-    price_med = float(getattr(tr, "price_med", 0.0) or 0.0)
-    ca = float(getattr(tr, "ca", 0.0) or 0.0)
-    cogs = float(getattr(tr, "cogs", 0.0) or 0.0)
+    price_med = float(resultat_tour.price_med)
+    ca = float(resultat_tour.ca)
+    cogs = float(resultat_tour.cogs)
 
     # OPEX
-    fixed_costs = float(getattr(tr, "fixed_costs", 0.0) or 0.0)
-    marketing = float(getattr(tr, "marketing", 0.0) or 0.0)
-    rh_cost = float(getattr(tr, "rh_cost", 0.0) or 0.0)
+    fixed_costs = float(resultat_tour.fixed_costs)
+    marketing = float(resultat_tour.marketing)
+    rh_cost = float(resultat_tour.rh_cost)
 
-    funds_start = float(getattr(tr, "funds_start", 0.0) or 0.0)
-    funds_end = float(getattr(tr, "funds_end", 0.0) or 0.0)
+    funds_start = float(resultat_tour.funds_start)
+    funds_end = float(resultat_tour.funds_end)
 
     # KPIs dérivés
     asp = ca / clients_serv if clients_serv > 0 else price_med
@@ -111,35 +111,35 @@ def print_turn_result(tr) -> None:
 
     # Prix & CA
     print(
-        f"\n  Prix médian menu : {_fmtformat_currency_eur(price_med):>12}   Ticket moyen (réel) : {_fmtformat_currency_eur(asp):>12}"
+        f"\n  Prix médian menu : {format_to_euro(price_med):>12}   Ticket moyen (réel) : {format_to_euro(asp):>12}"
     )
-    print(f"  Chiffre d'affaires: {_fmtformat_currency_eur(ca):>12}")
+    print(f"  Chiffre d'affaires: {format_to_euro(ca):>12}")
 
     # COGS & marge
-    print(f"  COGS (coût prod)  : {_fmtformat_currency_eur(cogs):>12}")
+    print(f"  COGS (coût prod)  : {format_to_euro(cogs):>12}")
     print(
-        f"  Marge brute       : {_fmtformat_currency_eur(gross_margin):>12}   (taux: {_pct(gross_margin, ca)})"
+        f"  Marge brute       : {format_to_euro(gross_margin):>12}   (taux: {_pct(gross_margin, ca)})"
     )
 
     # OPEX
-    print(f"\n  Coûts fixes       : {_fmtformat_currency_eur(fixed_costs):>12}")
-    print(f"  Marketing         : {_fmtformat_currency_eur(marketing):>12}")
-    print(f"  Masse salariale   : {_fmtformat_currency_eur(rh_cost):>12}")
-    print(f"  OPEX total        : {_fmtformat_currency_eur(opex):>12}")
+    print(f"\n  Coûts fixes       : {format_to_euro(fixed_costs):>12}")
+    print(f"  Marketing         : {format_to_euro(marketing):>12}")
+    print(f"  Masse salariale   : {format_to_euro(rh_cost):>12}")
+    print(f"  OPEX total        : {format_to_euro(opex):>12}")
 
     # Résultat opé
-    print(f"\n  Résultat opé.     : {_fmtformat_currency_eur(operating_result):>12}")
+    print(f"\n  Résultat opé.     : {format_to_euro(operating_result):>12}")
 
     # Tréso
-    print(f"\n  Trésorerie début  : {_fmtformat_currency_eur(funds_start):>12}")
-    print(f"  Trésorerie fin    : {_fmtformat_currency_eur(funds_end):>12}")
+    print(f"\n  Trésorerie début  : {format_to_euro(funds_start):>12}")
+    print(f"  Trésorerie fin    : {format_to_euro(funds_end):>12}")
 
     print(
         f"────────────────────────────────────────────────────────────────────────────\n"
     )
 
     # --- Affichage bonus : pertes de clients ---
-    losses = getattr(tr, "losses", None)
+    losses = resultat_tour.losses
     if isinstance(losses, dict) and losses.get("lost_total", 0) > 0:
         print(f"\n  ⚠ Pertes clients : {losses['lost_total']}")
         print(f"     - Stock insuffisant : {losses['lost_stock']}")
@@ -163,9 +163,9 @@ def print_multi_summary(rows: list) -> None:
     print("-" * 84)
     for r in rows:
         name = str(r.get("name", ""))[:30]
-        ca = _fmtformat_currency_eur(r.get("ca", 0.0))
-        cogs = _fmtformat_currency_eur(r.get("cogs", 0.0))
-        opex = _fmtformat_currency_eur(r.get("opex", 0.0))
-        res = _fmtformat_currency_eur(r.get("result", 0.0))
+        ca = format_to_euro(r.get("ca", 0.0))
+        cogs = format_to_euro(r.get("cogs", 0.0))
+        opex = format_to_euro(r.get("opex", 0.0))
+        res = format_to_euro(r.get("result", 0.0))
         print(f"{name:30} {ca:>12} {cogs:>12} {opex:>12} {res:>12}")
     print("===========================================================\n")

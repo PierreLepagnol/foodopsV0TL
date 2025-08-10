@@ -78,3 +78,11 @@ venv.bak/
 # Rope project settings
 .ropeproject
 .cursorignore
+
+# Pytest
+.pytest_cache/
+
+_vendor/
+.ruff_cache/
+
+not_to_git/

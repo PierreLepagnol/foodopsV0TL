@@ -58,12 +58,14 @@ class FinishedBatch:
 class Inventory:
     """
     Stock du restaurant :
-      - raw[name] -> liste de lots d'ingrédients (multi-gammes)
-      - finished  -> liste de lots de produits finis (FIFO de vente)
+      - ingredient_lots_by_name[name] -> liste de lots d'ingrédients (multi-gammes)
+      - finished_product_batches  -> liste de lots de produits finis (FIFO de vente)
     """
 
-    raw: Dict[str, List[IngredientStockLot]] = field(default_factory=dict)
-    finished: List[FinishedBatch] = field(default_factory=list)
+    ingredient_lots_by_name: Dict[str, List[IngredientStockLot]] = field(
+        default_factory=dict
+    )
+    finished_product_batches: List[FinishedBatch] = field(default_factory=list)
 
     # -------- Ingrédients (achats / disponibilité / consommation) --------
 
@@ -80,7 +82,7 @@ class Inventory:
         Ajoute un lot d'ingrédient. La péremption est exprimée en nombre de tours.
         Par ex. shelf_tours=1 => consommable sur le tour courant seulement.
         """
-        lot = IngredientStockLot(
+        new_lot = IngredientStockLot(
             name=name,
             grade=grade,
             qty_kg=float(qty_kg),
@@ -88,25 +90,22 @@ class Inventory:
             received_tour=current_tour,
             perish_tour=current_tour + int(max(0, shelf_tours)),
         )
-        self.raw.setdefault(name, []).append(lot)
+        self.ingredient_lots_by_name.setdefault(name, []).append(new_lot)
 
     def get_available_qty(self, name: str, current_tour: Optional[int] = None) -> float:
         """
         Quantité totale dispo (kg) non périmée pour un ingrédient.
         """
-        lots = self.raw.get(name, [])
-        total = 0.0
-        for lot in lots:
+        ingredient_lots = self.ingredient_lots_by_name[name]
+        total_available_qty = 0.0
+        for lot in ingredient_lots:
             if current_tour is not None and lot.is_expired(current_tour):
                 continue
-            total += max(0.0, lot.qty_kg)
-        return round(total, 6)
+            total_available_qty += max(0.0, lot.qty_kg)
+        return round(total_available_qty, 6)
 
     def has_ingredient(
-        self,
-        name: str,
-        qty_needed_kg: float,
-        current_tour: Optional[int] = None,
+        self, name: str, qty_needed_kg: float, current_tour: Optional[int] = None
     ) -> bool:
         """
         True si la somme des lots non périmés couvre qty_needed_kg.
@@ -122,14 +121,16 @@ class Inventory:
           2) ancienneté (FIFO dans une même gamme)
         Les lots périmés sont exclus.
         """
-        lots = [
+        non_expired_lots = [
             lot
-            for lot in self.raw.get(name, [])
+            for lot in self.ingredient_lots_by_name.get(name, [])
             if not (current_tour and lot.is_expired(current_tour))
         ]
         # Tri : meilleure gamme d'abord (-rank), puis received_tour croissant (ancien d'abord)
-        lots.sort(key=lambda l: (-_GRADE_RANK[l.grade], l.received_tour))
-        return lots
+        non_expired_lots.sort(
+            key=lambda lot: (-_GRADE_RANK[lot.grade], lot.received_tour)
+        )
+        return non_expired_lots
 
     def consume_ingredient(
         self,
@@ -142,39 +143,39 @@ class Inventory:
         Retourne (qty_retirée, coût_total_consumé). Si la quantité dispo est insuffisante,
         consommera le maximum possible (et retournera une quantité < qty_needed_kg).
 
-        NOTE : on ne mixe pas de logique de coût “cible” ici ; on valorise au coût unitaire du lot.
+        NOTE : on ne mixe pas de logique de coût "cible" ici ; on valorise au coût unitaire du lot.
         """
-        need = float(qty_needed_kg)
-        taken = 0.0
-        cost = 0.0
+        remaining_need_kg = float(qty_needed_kg)
+        total_consumed_qty = 0.0
+        total_consumed_cost = 0.0
 
-        if need <= 0:
+        if remaining_need_kg <= 0:
             return (0.0, 0.0)
 
-        lots = self._iter_lots_best_quality_fifo(name, current_tour)
-        i = 0
-        while i < len(lots) and need > 0:
-            lot = lots[i]
-            take = min(lot.qty_kg, need)
-            if take > 0:
-                lot.qty_kg -= take
-                taken += take
-                cost += take * lot.unit_cost
-                need -= take
+        sorted_lots = self._iter_lots_best_quality_fifo(name, current_tour)
+        lot_index = 0
+        while lot_index < len(sorted_lots) and remaining_need_kg > 0:
+            current_lot = sorted_lots[lot_index]
+            qty_to_take = min(current_lot.qty_kg, remaining_need_kg)
+            if qty_to_take > 0:
+                current_lot.qty_kg -= qty_to_take
+                total_consumed_qty += qty_to_take
+                total_consumed_cost += qty_to_take * current_lot.unit_cost
+                remaining_need_kg -= qty_to_take
 
-            if lot.qty_kg <= 1e-9:
-                # supprimer le lot vide du “vrai” tableau
-                real_lots = self.raw.get(name, [])
+            if current_lot.qty_kg <= 1e-9:
+                # supprimer le lot vide du "vrai" tableau
+                original_lots = self.ingredient_lots_by_name.get(name, [])
                 try:
-                    idx_real = real_lots.index(lot)
-                    real_lots.pop(idx_real)
+                    original_lot_index = original_lots.index(current_lot)
+                    original_lots.pop(original_lot_index)
                 except ValueError:
                     pass
-                lots.pop(i)
+                sorted_lots.pop(lot_index)
             else:
-                i += 1
+                lot_index += 1
 
-        return (round(taken, 6), round(cost, 2))
+        return (round(total_consumed_qty, 6), round(total_consumed_cost, 2))
 
     # -------- Produits finis (production / vente / nettoyage) --------
 
@@ -189,14 +190,14 @@ class Inventory:
         """
         Ajoute un lot de produits finis. Par défaut, périme au tour suivant (shelf_tours=1).
         """
-        batch = FinishedBatch(
+        new_batch = FinishedBatch(
             recipe_name=recipe_name,
             selling_price=float(selling_price),
             portions=int(portions),
             produced_tour=produced_tour,
             expires_tour=produced_tour + int(max(0, shelf_tours)),
         )
-        self.finished.append(batch)
+        self.finished_product_batches.append(new_batch)
 
     def total_finished_portions(
         self,
@@ -206,43 +207,46 @@ class Inventory:
         """
         Nombre total de portions prêtes à vendre (non périmées). Si recipe_name est fourni, filtre.
         """
-        total = 0
-        for b in self.finished:
-            if current_tour is not None and b.is_expired(current_tour):
+        total_portions = 0
+        for batch in self.finished_product_batches:
+            if current_tour is not None and batch.is_expired(current_tour):
                 continue
-            if recipe_name is not None and b.recipe_name != recipe_name:
+            if recipe_name is not None and batch.recipe_name != recipe_name:
                 continue
-            total += max(0, int(b.portions))
-        return total
+            total_portions += max(0, int(batch.portions))
+        return total_portions
 
     def sell_from_finished_fifo(self, qty_portions: int) -> Tuple[int, float]:
         """
         Vend jusqu'à qty_portions (peu importe la recette), FIFO strict.
         Retourne (portions_vendues, chiffre_affaires).
         NB : certaines UIs préféreront choisir une recette précise — cette
-        méthode globale est utile quand on “sert” des clients sans granularité.
+        méthode globale est utile quand on "sert" des clients sans granularité.
         """
-        need = int(qty_portions)
-        sold = 0
-        revenue = 0.0
-        i = 0
-        while i < len(self.finished) and need > 0:
-            b = self.finished[i]
-            if b.portions <= 0:
-                self.finished.pop(i)
+        remaining_portions_to_sell = int(qty_portions)
+        total_sold_portions = 0
+        total_revenue = 0.0
+        batch_index = 0
+        while (
+            batch_index < len(self.finished_product_batches)
+            and remaining_portions_to_sell > 0
+        ):
+            current_batch = self.finished_product_batches[batch_index]
+            if current_batch.portions <= 0:
+                self.finished_product_batches.pop(batch_index)
                 continue
-            take = min(b.portions, need)
-            if take > 0:
-                sold += take
-                revenue += take * b.selling_price
-                b.portions -= take
-                need -= take
+            portions_to_take = min(current_batch.portions, remaining_portions_to_sell)
+            if portions_to_take > 0:
+                total_sold_portions += portions_to_take
+                total_revenue += portions_to_take * current_batch.selling_price
+                current_batch.portions -= portions_to_take
+                remaining_portions_to_sell -= portions_to_take
 
-            if b.portions <= 0:
-                self.finished.pop(i)
+            if current_batch.portions <= 0:
+                self.finished_product_batches.pop(batch_index)
             else:
-                i += 1
-        return (sold, round(revenue, 2))
+                batch_index += 1
+        return (total_sold_portions, round(total_revenue, 2))
 
     # -------- Nettoyage (péremption) --------
 
@@ -252,21 +256,27 @@ class Inventory:
         À appeler au début de chaque tour.
         """
         # Ingrédients
-        for name, lots in list(self.raw.items()):
-            keep: List[IngredientStockLot] = []
-            for lot in lots:
+        for ingredient_name, ingredient_lots in list(
+            self.ingredient_lots_by_name.items()
+        ):
+            non_expired_lots: List[IngredientStockLot] = []
+            for lot in ingredient_lots:
                 if lot.is_expired(current_tour):
                     continue
                 # on garde uniquement les quantités positives
                 if lot.qty_kg > 1e-9:
-                    keep.append(lot)
-            if keep:
-                self.raw[name] = keep
+                    non_expired_lots.append(lot)
+            if non_expired_lots:
+                self.ingredient_lots_by_name[ingredient_name] = non_expired_lots
             else:
-                self.raw.pop(name, None)
+                self.ingredient_lots_by_name.pop(ingredient_name, None)
 
         # Produits finis
-        self.finished = [b for b in self.finished if not b.is_expired(current_tour)]
+        self.finished_product_batches = [
+            batch
+            for batch in self.finished_product_batches
+            if not batch.is_expired(current_tour)
+        ]
 
     # -------- Aides diverses --------
 
@@ -277,14 +287,14 @@ class Inventory:
         Liste des gammes disponibles (non périmées) pour un ingrédient donné,
         triées de la meilleure à la moins bonne.
         """
-        lots = self._iter_lots_best_quality_fifo(name, current_tour)
-        grades = []
-        seen = set()
-        for l in lots:
-            if l.grade not in seen:
-                seen.add(l.grade)
-                grades.append(l.grade)
-        return grades
+        sorted_lots = self._iter_lots_best_quality_fifo(name, current_tour)
+        available_grade_list = []
+        seen_grades = set()
+        for lot in sorted_lots:
+            if lot.grade not in seen_grades:
+                seen_grades.add(lot.grade)
+                available_grade_list.append(lot.grade)
+        return available_grade_list
 
     def snapshot(
         self, current_tour: Optional[int] = None
@@ -293,7 +303,7 @@ class Inventory:
         Vue simple du stock : {ingredient: [(grade, qty_kg), ...]} (non périmé uniquement si current_tour fourni)
 
         Étapes du processus:
-        1. Parcourt tous les ingrédients dans self.raw
+        1. Parcourt tous les ingrédients dans self.ingredient_lots_by_name
         2. Pour chaque ingrédient, examine tous ses lots
         3. Filtre les lots périmés si current_tour est fourni
         4. Extrait le nom de la gamme et la quantité de chaque lot valide
@@ -301,7 +311,7 @@ class Inventory:
         6. Retourne un dictionnaire organisé
 
         Exemple:
-        Si self.raw = {
+        Si self.ingredient_lots_by_name = {
             "tomate": [
                 IngredientStockLot(name="tomate", grade=FoodGrade.G1_FRAIS_BRUT, qty_kg=2.5, ...),
                 IngredientStockLot(name="tomate", grade=FoodGrade.G2_CONSERVE, qty_kg=1.0, ...)
@@ -317,164 +327,35 @@ class Inventory:
             "oignon": [("G3_SURGELE", 0.8)]
         }
         """
-        snap: Dict[str, List[Tuple[str, float]]] = {}
+        inventory_snapshot: Dict[str, List[Tuple[str, float]]] = {}
 
         # Étape 1: Parcourir tous les ingrédients
-        for name, lots in self.raw.items():
-            rows: List[Tuple[str, float]] = []
+        for ingredient_name, ingredient_lots in self.ingredient_lots_by_name.items():
+            grade_quantity_pairs: List[Tuple[str, float]] = []
 
             # Étape 2: Examiner chaque lot de l'ingrédient
-            for l in lots:
+            for lot in ingredient_lots:
                 # Étape 3: Filtrer les lots périmés si nécessaire
-                if current_tour is not None and l.is_expired(current_tour):
+                if current_tour is not None and lot.is_expired(current_tour):
                     continue
 
                 # Étape 4: Extraire nom de gamme et quantité
-                grade_name = getattr(l.grade, "name", str(l.grade))
-                quantity = round(l.qty_kg, 3)
-                rows.append((grade_name, quantity))
+                grade_name = getattr(lot.grade, "name", str(lot.grade))
+                lot_quantity = round(lot.qty_kg, 3)
+                grade_quantity_pairs.append((grade_name, lot_quantity))
 
             # Étape 5: Trier par qualité de gamme (meilleure d'abord)
-            rows.sort(
-                key=lambda gq: -_GRADE_RANK.get(
-                    getattr(FoodGrade, gq[0], gq[0])
-                    if isinstance(gq[0], str)
-                    else gq[0],
+            grade_quantity_pairs.sort(
+                key=lambda grade_qty_pair: -_GRADE_RANK.get(
+                    getattr(FoodGrade, grade_qty_pair[0], grade_qty_pair[0])
+                    if isinstance(grade_qty_pair[0], str)
+                    else grade_qty_pair[0],
                     0,  # valeur par défaut si gamme inconnue
                 )
             )
 
             # Étape 6: Ajouter au résultat final si des lots valides existent
-            if rows:
-                snap[name] = rows
+            if grade_quantity_pairs:
+                inventory_snapshot[ingredient_name] = grade_quantity_pairs
 
-        return snap
-
-
-# LEGACY
-
-
-# from dataclasses import dataclass, field
-# from typing import Dict, List, Tuple
-# from FoodOPS_V1.data.ingredients import Ingredient, FoodGrade
-# from FoodOPS_V1.domain.simple_recipe import SimpleRecipe
-# from FoodOPS_V1.rules.costing import compute_recipe_cogs
-
-
-# @dataclass
-# class StockItem:
-#     ingredient: Ingredient
-#     kg: float  # quantité en kg disponible
-
-
-# @dataclass
-# class FinishedBatch:
-#     recipe_name: str
-#     selling_price: float
-#     portions: int
-#     expiry_tour: int  # périme après ce tour
-
-
-# @dataclass
-# class Inventory:
-#     ingredients: Dict[Tuple[str, FoodGrade], StockItem] = field(default_factory=dict)
-#     finished: List[FinishedBatch] = field(default_factory=list)
-
-#     # --- INGREDIENTS ---
-
-#     def add_ingredient(self, ing: Ingredient, kg: float) -> None:
-#         key = (ing.name, ing.grade)
-#         cur = self.ingredients.get(key)
-#         if cur:
-#             cur.kg += kg
-#         else:
-#             self.ingredients[key] = StockItem(ingredient=ing, kg=kg)
-
-#     def get_available_variants(self, name: str) -> List[StockItem]:
-#         return [
-#             si
-#             for (n, _), si in self.ingredients.items()
-#             if n == name and si.kg > 0.0001
-#         ]
-
-#     def consume_ingredient(self, ing: Ingredient, kg: float) -> bool:
-#         key = (ing.name, ing.grade)
-#         si = self.ingredients.get(key)
-#         if not si or si.kg < kg - 1e-9:
-#             return False
-#         si.kg -= kg
-#         if si.kg <= 1e-6:
-#             del self.ingredients[key]
-#         return True
-
-#     # --- PRODUITS FINIS ---
-
-#     def cleanup_expired(self, current_tour: int) -> None:
-#         self.finished = [b for b in self.finished if b.expiry_tour >= current_tour]
-
-#     def total_finished_portions(self) -> int:
-#         return sum(b.portions for b in self.finished)
-
-#     def consume_finished(self, qty: int) -> int:
-#         """Consomme des portions FIFO. Retourne réellement consommé."""
-#         need = qty
-#         i = 0
-#         while i < len(self.finished) and need > 0:
-#             b = self.finished[i]
-#             take = min(b.portions, need)
-#             b.portions -= take
-#             need -= take
-#             if b.portions == 0:
-#                 self.finished.pop(i)
-#             else:
-#                 i += 1
-#         return qty - need  # vendu
-
-#     # --- PRODUCTION ---
-
-#     def produce_from_recipe(
-#         self, recipe: SimpleRecipe, portions: int, current_tour: int
-#     ) -> Tuple[bool, float, str]:
-#         """
-#         Tente de produire 'portions' en consommant l'ingrédient principal du stock.
-#         Retour: (ok, cogs_total, message).
-#         Le coût reconnu est le COGS par portion * portions (reconnu à la production).
-#         """
-#         if portions <= 0:
-#             return (False, 0.0, "Nombre de portions invalide.")
-
-#         # Calcul quantité matière nécessaire
-#         kg_needed = recipe.portion_kg * portions
-
-#         # On doit utiliser exactement la variante (gamme) de l'ingrédient de la recette
-#         key = (recipe.main_ingredient.name, recipe.main_ingredient.grade)
-#         si = self.ingredients.get(key)
-#         if not si or si.kg < kg_needed - 1e-9:
-#             return (
-#                 False,
-#                 0.0,
-#                 "Stock insuffisant pour cette gamme d'ingrédient.",
-#             )
-
-#         # Déduire du stock
-#         si.kg -= kg_needed
-#         if si.kg <= 1e-6:
-#             del self.ingredients[key]
-
-#         # Créer un lot de produits finis périmant fin du tour suivant
-#         batch = FinishedBatch(
-#             recipe_name=recipe.name,
-#             selling_price=recipe.selling_price,
-#             portions=portions,
-#             expiry_tour=current_tour + 1,
-#         )
-#         self.finished.append(batch)
-
-#         # Coût reconnu à la production (matières + petit forfait MO/énergie)
-#         cogs_one = compute_recipe_cogs(recipe)
-#         cogs_total = round(cogs_one * portions, 2)
-#         return (
-#             True,
-#             cogs_total,
-#             f"Produit {portions} portions de « {recipe.name} » (péremption T{current_tour + 1}).",
-#         )
+        return inventory_snapshot

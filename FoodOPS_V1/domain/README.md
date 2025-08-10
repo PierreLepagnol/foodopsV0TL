@@ -1,39 +1,49 @@
-### FoodOPS — Domain
+# Couche Domaine FoodOPS
 
-The domain defines the core business objects of the simulation
-These are plain data-centric entities with minimal logic, designed for clarity, testability, and reuse across the engine.
+Objets métier fondamentaux pour le jeu de simulation de restaurant.
 
-- **Purpose**: Model restaurants, menus, ingredients, inventory, and staff as passive structures
-    Avoid side effects; keep rules and orchestration elsewhere.
+## Vue d'ensemble
 
-- **Key objects**
-  - **`Restaurant`**: concept (`FAST_FOOD`, `BISTRO`, `GASTRO`), local, menu (`SimpleRecipe`), funds, notoriety, overheads, inventory, loan info, staff team, service/kitchen minute banks, RH satisfaction, and `ledger` reference.
-  - **`Local`**: seats/capacity and visibility
-    Drives demand and constrains service.
-  - **`SimpleRecipe`**: recipe item with technique, complexity, price (`price`/`selling_price`), and base quality
-    May carry a grade hint via its ingredients list.
-  - **`Recipe` / `RecipeLine` / `PrepStep`**: richer recipe model (portion yields, raw/net quantities) for future expansion.
-  - **Ingredients**: `IngredientCategory`, `FoodGrade`, and `Ingredient` abstractions
-    Grades represent procurement tiers used by rules.
-  - **`Inventory`**: raw ingredient lots (grade, unit cost, perish tour) and finished product batches (portions, expiry)
-    FIFO for both consumption and sales.
-  - **Staff**: `Employe`, `Role`, and role productivity minutes (service/kitchen) per turn; used to compute minute banks on `Restaurant`.
-  - **Types**: `RestaurantType` enums (duplicate compatibility shims exist in `domain/types.py` and `domain/restaurant_type.py`).
-  - **Legacy helpers**: `stock.py` is a simpler inventory model kept for compatibility.
+La couche domaine contient des objets de données purs qui modélisent les restaurants, ingrédients, recettes, personnel et scénarios de marché. Ces objets se concentrent sur la représentation des données sans logique métier complexe.
 
-- **Responsibilities and boundaries**
-  - Keep domain objects simple and serialization-friendly.
-  - Do not embed allocation, scoring, costing, or accounting algorithms here.
-  - Provide small utility methods only where they are intrinsic (e.g., computing minutes, cloning recipe price).
+## Objets Principaux
 
-- **Interactions**
-  - Used by the core loop to run turns and mutate state (inventory, funds, minutes, ledger reference).
-  - Consumed by rules for scoring, costing, labour calculations, and recipe/menu generation.
-  - Populated from data presets (locals, ingredients, menus, scenarios).
+### Gestion du Restaurant
+- **`Restaurant`** - Entité principale avec finances, personnel, menu, inventaire et métriques de performance
+- **`Local`** - Emplacement du restaurant avec capacité, loyer et propriétés de visibilité
+- **`RestaurantType`** - Enum : `FAST_FOOD`, `BISTRO`, `GASTRO`
 
-- **Extensibility**
-  - Add fields with care; prefer optional attributes for forward compatibility.
-  - Maintain consistent grade/category semantics across domain and data.
-  - Keep calculation-heavy logic in `rules/` and orchestration in `core/`.
+### Menu et Recettes
+- **`SimpleRecipe`** - Plat du menu avec ingrédients, technique, complexité et tarification
+- **`Recipe`** - Modèle de recette avancé avec étapes de préparation détaillées (usage futur)
+- **`Technique`** - Méthodes de cuisson : `FROID`, `GRILLE`, `SAUTE`, `FOUR`, `FRIT`, `VAPEUR`
+- **`Complexity`** - Difficulté de la recette : `SIMPLE`, `COMPLEXE`, `COMBO`
 
+### Ingrédients et Inventaire
+- **`Ingredient`** - Produits alimentaires avec catégories, grades et tarification
+- **`IngredientCategory`** - Types : `VIANDE`, `POISSON`, `LEGUME`, `FECULENT`, etc.
+- **`FoodGrade`** - Niveaux de qualité : `G1_FRAIS_BRUT` à `G5_CUIT_SOUS_VIDE`
+- **`Inventory`** - Gestion des stocks avec consommation FIFO et suivi des dates d'expiration
 
+### Personnel et Opérations
+- **`Employe`** - Membre du personnel avec rôle, salaire et productivité
+- **`Role`** - Types de postes : `SERVEUR`, `CUISINIER`, `MANAGER`
+- Banques de minutes service/cuisine pour la capacité opérationnelle
+
+### Marché et Scénarios
+- **`Scenario`** - Conditions de marché avec population et segments de clientèle
+- **`Segment`** - Types de clients : `ETUDIANT`, `ACTIF`, `FAMILLE`, `TOURISTE`, `SENIOR`
+
+## Fonctionnalités Clés
+
+- **Inventaire FIFO** - Consommation automatique des ingrédients et vente des produits par date d'expiration
+- **Ingrédients Multi-Grades** - Différents niveaux de qualité affectent le coût et la perception client
+- **Productivité du Personnel** - Allocation de minutes basée sur le rôle pour les opérations de service et cuisine
+- **Modélisation des Coûts** - Calcul du coût de base avec multiplicateurs de grade et facteurs de main-d'œuvre
+
+## Principes de Conception
+
+- **Centré sur les Données** - Logique métier minimale, focus sur la représentation d'état
+- **Sérialisable** - Tous les objets peuvent être sauvegardés/chargés depuis JSON
+- **Immutable Autant que Possible** - Privilégier les fonctions pures plutôt que la mutation d'état
+- **Séparation Claire** - Les règles métier vivent dans `rules/`, l'orchestration dans `core/`

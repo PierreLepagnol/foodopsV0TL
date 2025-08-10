@@ -1,25 +1,24 @@
-from typing import List, Dict
-from FoodOPS_V1.domain.recipe import Recipe, RecipeLine, PrepStep
-from FoodOPS_V1.domain.ingredient import Ingredient
-from FoodOPS_V1.data.ingredients_fr import INGREDIENTS_FR
+from typing import List
+from FoodOPS_V1.domain.recipe import Recipe, RecipeLine, PrepStep, PricePolicy
 from FoodOPS_V1.rules import costing
-from FoodOPS_V1.domain.restaurant import RestaurantType
+from FoodOPS_V1.domain.types import RestaurantType
+from FoodOPS_V1.domain.ingredients import CATALOG, Ingredient
 
 
-def pick_policy_for_restotype(rt: RestaurantType) -> costing.PricePolicy:
-    if rt == RestaurantType.FAST_FOOD:
+def pick_policy_for_restotype(restaurant_type: RestaurantType) -> PricePolicy:
+    if restaurant_type == RestaurantType.FAST_FOOD:
         return costing.FAST_POLICY
-    if rt == RestaurantType.GASTRO:
+    if restaurant_type == RestaurantType.GASTRO:
         return costing.GASTRO_POLICY
     return costing.BISTRO_POLICY
 
 
 def choose_ingredients() -> List[Ingredient]:
     """Sélection multi simple depuis le catalogue FR."""
-    names = list(INGREDIENTS_FR.keys())
+    names = list(CATALOG.keys())
     print("\nCatalogue ingrédients (FR) 🍅🥕 :")
     for i, n in enumerate(names, 1):
-        ing = INGREDIENTS_FR[n]
+        ing = CATALOG[n]
         print(
             f" {i:>2}. {n} — {ing.base_priceformat_currency_eur_per_kg:.2f} €/kg, grade={ing.grade.name}"
         )
@@ -37,10 +36,10 @@ def choose_ingredients() -> List[Ingredient]:
                 idxs.append(j - 1)
         except ValueError:
             pass
-    return [INGREDIENTS_FR[names[j]] for j in idxs]
+    return [CATALOG[names[j]] for j in idxs]
 
 
-def build_recipe(rt: RestaurantType) -> Recipe | None:
+def build_recipe(restaurant_type: RestaurantType) -> Recipe | None:
     print("\n=== Création d'une recette === 🍽️")
     name = input("Nom de la recette : ").strip()
     if not name:
@@ -93,7 +92,7 @@ def build_recipe(rt: RestaurantType) -> Recipe | None:
     # Calculs
     cost = recipe.cost_per_portion()
     q = recipe.estimate_quality()
-    policy = pick_policy_for_restotype(rt)
+    policy = pick_policy_for_restotype(restaurant_type)
     suggested = recipe.suggest_price(policy)
 
     print("\n--- Fiche coût express --- 💶 ---")
