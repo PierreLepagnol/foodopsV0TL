@@ -77,3 +77,4 @@ venv.bak/
 
 # Rope project settings
 .ropeproject
+.cursorignore
