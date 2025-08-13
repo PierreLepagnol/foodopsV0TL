@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, RootModel
 
 
 def get_input(
@@ -26,7 +26,7 @@ def get_input(
         print(error_message)
 
 
-def load_and_validate(data_path: Path, model: BaseModel) -> BaseModel:
+def load_and_validate(data_path: Path, model: Union[RootModel, BaseModel]) -> BaseModel:
     """
     Load and validate model data from data_path.
     Returns a validated model instance.

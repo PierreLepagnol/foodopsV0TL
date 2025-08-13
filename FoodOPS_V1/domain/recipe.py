@@ -1,8 +1,7 @@
 from typing import List, Dict, Tuple, Optional
 from enum import Enum
 from FoodOPS_V1.domain.ingredients import Ingredient, FoodGrade
-from FoodOPS_V1.domain.restaurant import RestaurantType
-import numpy as np
+from FoodOPS_V1.domain.types import RestaurantType
 
 from pydantic import BaseModel, Field
 
@@ -207,7 +206,7 @@ def suggest_price(
 
     Exemple
     -------
-    >>> from FoodOPS_V1.domain import RestaurantType
+    >>> from FoodOPS_V1.domain.types import RestaurantType
     >>> from FoodOPS_V1.domain.recipe import SimpleRecipe, Technique, Complexity
     >>> from FoodOPS_V1.domain.ingredients import Ingredient, IngredientCategory, FoodGrade
     >>> ing = Ingredient(

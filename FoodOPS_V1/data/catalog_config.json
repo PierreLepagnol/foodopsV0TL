@@ -45,7 +45,7 @@
             "BISTRO": 0.85,
             "GASTRO": 1.0
         },
-        "tier": "BISTRO+"
+        "tier": "BISTRO_PLUS"
     },
     "Magret de canard": {
         "categories": [
@@ -61,7 +61,7 @@
             "BISTRO": 0.9,
             "GASTRO": 0.95
         },
-        "tier": "BISTRO+"
+        "tier": "BISTRO_PLUS"
     },
     "Saumon": {
         "categories": [
@@ -109,7 +109,7 @@
             "BISTRO": 0.85,
             "GASTRO": 1.0
         },
-        "tier": "BISTRO+"
+        "tier": "BISTRO_PLUS"
     },
     "Homard": {
         "categories": [
@@ -203,7 +203,7 @@
             "BISTRO": 0.9,
             "GASTRO": 0.95
         },
-        "tier": "BISTRO+"
+        "tier": "BISTRO_PLUS"
     },
     "Beurre": {
         "categories": [

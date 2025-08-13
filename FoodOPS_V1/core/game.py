@@ -1,15 +1,12 @@
-# foodops/core/game.py
-
 from typing import List, Tuple
 
-from pydantic import BaseModel
-
-from FoodOPS_V1.core.accounting import (
-    Ledger,
-)
+from FoodOPS_V1.core.accounting import Ledger
 from FoodOPS_V1.core.market import allocate_demand, clamp_capacity
-from FoodOPS_V1.domain import Restaurant, RestaurantType, Scenario
 from FoodOPS_V1.domain.local import CATALOG_LOCALS
+from FoodOPS_V1.domain.recipe import SimpleRecipe
+from FoodOPS_V1.domain.restaurant import Restaurant
+from FoodOPS_V1.domain.types import RestaurantType
+from FoodOPS_V1.domain.scenario import Scenario, propose_financing
 from FoodOPS_V1.ui.affichage import (
     print_balance_sheet,
     print_income_statement,
@@ -19,92 +16,8 @@ from FoodOPS_V1.ui.affichage import (
 )
 from FoodOPS_V1.ui.director_office import bureau_directeur
 from FoodOPS_V1.utils import get_input
-
-
-class TurnResult(BaseModel):
-    """Snapshot des principaux KPI d'un tour pour un restaurant."""
-
-    restaurant_name: str
-    tour: int
-    clients_attribues: int
-    clients_serv: int
-    capacity: int
-    price_med: float
-    ca: float
-    cogs: float
-    fixed_costs: float
-    marketing: float
-    rh_cost: float
-    funds_start: float
-    funds_end: float
-    losses: dict
-
-
-class FinancingPlan(BaseModel):
-    """Simple plan de financement retourné par `propose_financing`.
-
-    Champs clés: apports, prêts (banque/BPI), encours, mensualités et cash initial.
-    """
-
-    apport: float
-    bank_loan: float
-    bpi_loan: float
-    frais_dossier: float
-    bank_monthly: float
-    bpi_monthly: float
-    bank_outstanding: float
-    bpi_outstanding: float
-    cash_initial: float
-
-
-def propose_financing(fonds_price: float, equip_default: float) -> FinancingPlan:
-    """Calcule un plan de financement automatique selon des règles fixes.
-
-    Applique les constantes APPORT_FIXE, BANQUE_FIXE, BPI_MAX pour calculer
-    les prêts nécessaires, les mensualités et la trésorerie initiale disponible.
-
-    Args:
-        fonds_price: Prix du fonds de commerce
-        equip_default: Investissement équipement par défaut
-
-    Returns:
-        FinancingPlan complet avec tous les montants et mensualités
-    """
-    APPORT_FIXE = 50_000.0
-    BANQUE_FIXE = 250_000.0
-    BPI_MAX = 20_000.0
-    FRAIS_PCT = 0.03
-    TAUX_BANQUE = 0.045  # annuel
-    TAUX_BPI = 0.025  # annuel
-    DUREE_BANQUE = 60  # mois
-    DUREE_BPI = 48  # mois
-
-    besoin_total = fonds_price + equip_default
-
-    apport = APPORT_FIXE
-    bank_loan = BANQUE_FIXE
-    reste = besoin_total - (apport + bank_loan)
-
-    bpi_loan = max(0.0, min(BPI_MAX, reste))
-    frais_dossier = (bank_loan + bpi_loan) * FRAIS_PCT
-
-    # mensualités simples (amortissement constant sur durée, intérêt moyen)
-    bank_monthly = (bank_loan / DUREE_BANQUE) + (bank_loan * TAUX_BANQUE / 12)
-    bpi_monthly = (bpi_loan / DUREE_BPI) + (bpi_loan * TAUX_BPI / 12)
-
-    cash_initial = apport + bank_loan + bpi_loan - besoin_total - frais_dossier
-
-    return FinancingPlan(
-        apport=apport,
-        bank_loan=bank_loan,
-        bpi_loan=bpi_loan,
-        frais_dossier=frais_dossier,
-        bank_monthly=bank_monthly,
-        bpi_monthly=bpi_monthly,
-        bank_outstanding=bank_loan,
-        bpi_outstanding=bpi_loan,
-        cash_initial=cash_initial,
-    )
+from FoodOPS_V1.core.results import TurnResult
+from FoodOPS_V1.rules.recipe_factory import build_menu_for_type
 
 
 def initialisation_restaurants() -> List[Restaurant]:
@@ -121,7 +34,6 @@ def initialisation_restaurants() -> List[Restaurant]:
         Liste des restaurants initialisés et prêts à jouer
     """
     restaurants = []
-    menus_by_type = Restaurant.get_default_menus_simple()
 
     # Saisie du nombre de joueurs ici (la CLI n'envoie plus le param)
     nb_joueurs = int(
@@ -158,6 +70,7 @@ def initialisation_restaurants() -> List[Restaurant]:
         # Plan de financement selon règles admin
         plan = propose_financing(local.prix_fond, equip_default)
 
+        menus_by_type = build_menu_for_type(RestaurantType[type_resto])
         # Création du restaurant
         restaurant = Restaurant(
             name=f"Resto {i + 1}",

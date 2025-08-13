@@ -3,24 +3,25 @@ from typing import ClassVar, Dict, List, Optional, Tuple, Type
 from abc import ABC
 
 import numpy as np
+from pydantic import BaseModel
 
-from FoodOPS_V1.core.game import FinancingPlan
+from FoodOPS_V1.domain.scenario import FinancingPlan
 from FoodOPS_V1.domain.ingredients import FoodGrade
 from FoodOPS_V1.domain.inventory import Inventory
 from FoodOPS_V1.domain.recipe import SimpleRecipe
 from FoodOPS_V1.domain.staff import Employe
 from FoodOPS_V1.domain.local import Local
 from FoodOPS_V1.core.accounting import Ledger, post_opening, TypeOperation
+from FoodOPS_V1.domain.types import RestaurantType
 
 MARGIN_BY_RESTO = {"FAST_FOOD": 2.5, "BISTRO": 3.0, "GASTRO": 3.8}
 
 
-@dataclass
-class Restaurant(ABC):
+class Restaurant(BaseModel):
     """Base restaurant with shared behavior/fields."""
 
     # Per-subclass constants
-    TYPE: ClassVar[str] = "BASE"
+    TYPE: ClassVar[RestaurantType] = RestaurantType.FAST_FOOD
     DEFAULT_MARGIN: ClassVar[float] = 2.5
     SERVICE_SPEED: ClassVar[float] = 1.00
     SERVICE_MINUTES_PER_COVER: ClassVar[float] = 0.0
@@ -283,16 +284,6 @@ class Restaurant(ABC):
         return 0.0 if amount <= 0 else round(amount / months, 2)
 
     # FIN - Enregistrement des écritures comptables
-
-    @classmethod
-    def get_default_menus_simple(cls) -> Dict[str, List[SimpleRecipe]]:
-        from FoodOPS_V1.rules.recipe_factory import build_menu_for_type
-
-        return {
-            "FAST_FOOD": build_menu_for_type("FAST_FOOD"),
-            "BISTRO": build_menu_for_type("BISTRO"),
-            "GASTRO": build_menu_for_type("GASTRO"),
-        }
 
     def compute_median_price(self) -> float:
         """Prix médian des menus du restaurant."""

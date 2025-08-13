@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 # Imports robustes (adapte "foodops" si ton package s'appelle autrement)
 from FoodOPS_V1.domain.restaurant import Restaurant
-from FoodOPS_V1.domain.restaurant import RestaurantType
+from FoodOPS_V1.domain.types import RestaurantType
 from FoodOPS_V1.domain.inventory import Inventory
 from FoodOPS_V1.rules.recipe_factory import build_menu_for_type
 

@@ -23,23 +23,11 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
-from FoodOPS_V1.domain import Restaurant, RestaurantType
+from FoodOPS_V1.domain.restaurant import Restaurant
+from FoodOPS_V1.domain.types import RestaurantType
 from FoodOPS_V1.domain.market import BUDGET_PER_SEGMENT, Segment
 from FoodOPS_V1.domain.scenario import Scenario
 from FoodOPS_V1.rules.scoring import attraction_score
-
-# ------------------------------
-# Paramètres “marché” (ajustables)
-# ------------------------------
-
-
-# Pénalité “cannibalisation” : plus il y a de restaurants d'un même type, plus on pénalise légèrement le score.
-# Ex: factor = 1 / sqrt(1 + alpha*(n_same_type-1))
-
-
-# ------------------------------
-# Petits shims & helpers
-# ------------------------------
 
 
 def is_eligible_by_budget(restaurant: Restaurant, customer: Segment) -> bool:
@@ -173,11 +161,6 @@ def _ranked_for_segment(
     # ranked = sorted(unranked.items(), key=lambda x: x[1], reverse=True)
 
     return unranked
-
-
-# ------------------------------
-# API principale
-# ------------------------------
 
 
 def allocate_demand(

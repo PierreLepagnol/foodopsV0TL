@@ -16,7 +16,7 @@ def run():
         funds=20000.0,
         marketing_budget=300.0,
     )
-    restaurant.menu = build_menu_for_type(type_restaurant)
+    restaurant.menu = build_menu_for_type(restaurant)
     scenario = CATALOG_SCENARIOS["centre_ville"]
 
     restaurants_list = initialisation_restaurants()
