@@ -1,5 +1,5 @@
 from FoodOPS_V1.domain.restaurant import Restaurant
-from FoodOPS_V1.core.accounting import balance_sheet
+from FoodOPS_V1.core.game import TurnResult
 
 
 def format_to_euro(x: float) -> str:
@@ -164,7 +164,7 @@ def print_resume_financement(restaurant: Restaurant, financing_plan):
     print(f"💶Trésoreriededépart: {format_to_euro(plan.cash_initial)}")
 
 
-# ---------- Impression d'un tour ----------
+# Impression d'un tour
 
 
 def print_turn_result(resultat_tour: TurnResult) -> None:
@@ -265,9 +265,6 @@ def print_turn_result(resultat_tour: TurnResult) -> None:
         print(f"\t- Stock insuffisant : {losses['lost_stock']}")
         print(f"\t- Capacité limitée  : {losses['lost_capacity']}")
         print(f"\t- Autres raisons    : {losses['lost_other']}")
-
-
-# ---------- (Optionnel) résumé multi-restos ----------
 
 
 def print_multi_summary(rows: list) -> None:

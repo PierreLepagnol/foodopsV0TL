@@ -2,24 +2,22 @@
 
 from typing import List, Tuple
 
-import numpy as np
 from pydantic import BaseModel
 
 from FoodOPS_V1.core.accounting import (
     Ledger,
-    month_amortization,
 )
 from FoodOPS_V1.core.market import allocate_demand, clamp_capacity
-from FoodOPS_V1.domain import Restaurant, Scenario, RestaurantType
+from FoodOPS_V1.domain import Restaurant, RestaurantType, Scenario
 from FoodOPS_V1.domain.local import CATALOG_LOCALS
 from FoodOPS_V1.ui.affichage import (
     print_balance_sheet,
     print_income_statement,
     print_opening_balance,
     print_resume_financement,
+    print_turn_result,
 )
 from FoodOPS_V1.ui.director_office import bureau_directeur
-from FoodOPS_V1.ui.affichage import print_turn_result
 from FoodOPS_V1.utils import get_input
 
 
@@ -40,9 +38,6 @@ class TurnResult(BaseModel):
     funds_start: float
     funds_end: float
     losses: dict
-
-
-# constantes gameplay
 
 
 class FinancingPlan(BaseModel):

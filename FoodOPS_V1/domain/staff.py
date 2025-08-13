@@ -1,9 +1,10 @@
 """Gestion du personnel / staff."""
 
-from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Dict
 from enum import Enum
+from typing import Dict, FrozenSet, Mapping, Optional
+
+from FoodOPS_V1.domain.restaurant import RestaurantType
 
 # IMPORTANT : pas d'import du package domain complet ici (pour éviter les cycles)
 # Si tu dois typer Restaurant ailleurs, fais-le avec TYPE_CHECKING dans ce fichier-là.
@@ -60,13 +61,6 @@ class Employe:
         km = int(base["kitchen_minutes"] * float(self.productivite_bonus))
         self.service_minutes = max(0, sm)
         self.kitchen_minutes = max(0, km)
-
-
-from dataclasses import dataclass
-from enum import Enum
-from typing import FrozenSet, Mapping, Optional
-
-from FoodOPS_V1.domain import RestaurantType
 
 
 class Department(Enum):

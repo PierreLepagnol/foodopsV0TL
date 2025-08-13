@@ -8,4 +8,4 @@ layer into distinct subpackages to encourage maintainability and
 clarity.
 """
 
-__all__ = ["core", "domain", "data", "rules", "scenarios", "ui", "net"]
+__all__ = ["core", "domain", "data", "rules", "ui"]
