@@ -1,17 +1,18 @@
 from typing import List, Dict, Tuple, Optional
 from enum import Enum
 from FoodOPS_V1.domain.ingredients import Ingredient, FoodGrade
-from FoodOPS_V1.domain.types import RestaurantType
+from FoodOPS_V1.domain.restaurant import RestaurantType
+import numpy as np
 
 from pydantic import BaseModel, Field
 
 
 class Technique(str, Enum):
     FROID = "froid"
-    GRILLE = "grille"
-    SAUTE = "saute"
-    FOUR = "four"  # cuisson au four / rôtir
-    ROTI = "four"  # ✅ alias rétro-compat: Technique.ROTI existe
+    GRILLE = "grillé"
+    SAUTE = "poêlé"
+    FOUR = "au four"  # cuisson au four / rôtir
+    ROTI = "rôti"  # ✅ alias rétro-compat: Technique.ROTI existe
     FRIT = "frit"
     VAPEUR = "vapeur"
 

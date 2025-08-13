@@ -26,13 +26,13 @@ Utilisation comme module (extrait) :
 ```python
 from FoodOPS_V1.core.game import Game
 from FoodOPS_V1.domain.restaurant import Restaurant
-from FoodOPS_V1.domain.types import RestaurantType
+from FoodOPS_V1.domain.restaurant import RestaurantType
 
 resto = Restaurant(
     name="Démo Bistro",
     type=RestaurantType.BISTRO,
 )
-resto.menu = build_menu_for(RestaurantType.BISTRO)
+resto.menu = build_menu_for_type(RestaurantType.BISTRO)
 prime_finished_stock(resto, portions=50)
 Game(restaurants=[resto]).play()
 ```
@@ -49,7 +49,7 @@ from FoodOPS_V1.domain.inventory import Inventory
 from FoodOPS_V1.rules.recipe_factory import build_menu_for_type
 
 
-def build_menu_for(resto_type):
+def build_menu_for_type(resto_type):
     """Construit un menu adapté au type de restaurant.
 
     Tente d'abord d'utiliser `FoodOPS_V1.rules.recipe_factory.build_menu_for_type`.
@@ -63,8 +63,8 @@ def build_menu_for(resto_type):
     - list: une liste d'objets recette (implémentations du domaine).
 
     Exemple
-    >>> from FoodOPS_V1.domain.types import RestaurantType
-    >>> menu = build_menu_for(RestaurantType.BISTRO)
+    >>> from FoodOPS_V1.domain.restaurant import RestaurantType
+    >>> menu = build_menu_for_type(RestaurantType.BISTRO)
     >>> len(menu) >= 2
     True
     """
@@ -158,7 +158,7 @@ def main() -> None:
     )
 
     # 2) Génère le menu (15 bistro / 10 FF / 20 gastro ou fallback mini)
-    resto.menu = build_menu_for(rtype)
+    resto.menu = build_menu_for_type(rtype)
 
     # 3) Ajoute un lot de produits finis pour vendre direct
     recipe0, price0, portions = prime_finished_stock(resto, portions=50)

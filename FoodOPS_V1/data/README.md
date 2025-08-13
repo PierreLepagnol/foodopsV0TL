@@ -44,7 +44,7 @@ Propriétés de restaurant disponibles avec leurs caractéristiques et coûts.
 - `capacite_clients` : Maximum de clients simultanés
 - `loyer` : Coût de loyer mensuel
 - `prix_fond` : Prix d'achat/caution de bail
-- `visibilite` : Multiplicateur de visibilité de l'emplacement (affecte la découverte client)
+- `visibility` : Multiplicateur de visibilité de l'emplacement (affecte la découverte client)
 
 **Exemples :**
 - "Kiosque Campus" : Petit, abordable, orienté étudiants

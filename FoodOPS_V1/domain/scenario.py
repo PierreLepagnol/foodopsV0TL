@@ -38,6 +38,14 @@ class Scenario(BaseModel):
     segments_share: Dict[Segment, float]
     note: str = ""
 
+    def compute_segment_quantities(self) -> Dict[Segment, int]:
+        """Convertit les parts du scénario en volumes entiers par segment."""
+        demand = {
+            segment: int(round(self.population_total * share))
+            for segment, share in self.segments_share.items()
+        }
+        return demand
+
 
 def load_scenarios(json_path: Optional[Path | str] = None) -> Dict[str, Scenario]:
     """Charge les scénarios depuis le JSON et valide via Pydantic.

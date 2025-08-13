@@ -10,7 +10,15 @@ class Local(BaseModel):
     capacite_clients: int
     loyer: float
     prix_fond: float
-    visibilite: float
+    visibility: float
+
+    @property
+    def visibility_normalized(self) -> float:
+        """
+        Normalise la visibilité du local en [0..1].
+        # On suppose local.visibility ~ 0..5 (adapter si autre échelle).
+        """
+        return float(self.visibility) / 5.0
 
 
 def load_local_config(filepath: str) -> List[Local]:

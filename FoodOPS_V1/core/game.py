@@ -1,8 +1,9 @@
 # foodops/core/game.py
 
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 
 import numpy as np
+from pydantic import BaseModel
 
 from FoodOPS_V1.core.accounting import (
     Ledger,
@@ -15,44 +16,124 @@ from FoodOPS_V1.core.accounting import (
     post_sales,
     post_services_ext,
 )
-from FoodOPS_V1.core.finance import propose_financing
 from FoodOPS_V1.core.market import allocate_demand, clamp_capacity
-from FoodOPS_V1.domain import Restaurant, Scenario
+from FoodOPS_V1.domain import Restaurant, Scenario, RestaurantType
 from FoodOPS_V1.domain.local import CATALOG_LOCALS
-from FoodOPS_V1.domain.recipe import SimpleRecipe
-from FoodOPS_V1.domain.types import RestaurantType, TurnResult
-from FoodOPS_V1.rules.recipe_factory import build_menu_for_type
 from FoodOPS_V1.ui.affichage import (
+    print_balance_sheet,
+    print_income_statement,
     print_opening_balance,
     print_resume_financement,
-    print_income_statement,
-    print_balance_sheet,
 )
 from FoodOPS_V1.ui.director_office import bureau_directeur
 from FoodOPS_V1.ui.results_view import print_turn_result
 from FoodOPS_V1.utils import get_input
 
-# Simulation
+
+class TurnResult(BaseModel):
+    """Snapshot des principaux KPI d'un tour pour un restaurant."""
+
+    restaurant_name: str
+    tour: int
+    clients_attribues: int
+    clients_serv: int
+    capacity: int
+    price_med: float
+    ca: float
+    cogs: float
+    fixed_costs: float
+    marketing: float
+    rh_cost: float
+    funds_start: float
+    funds_end: float
+    losses: dict
 
 
-def get_default_menus_simple() -> Dict[RestaurantType, List[SimpleRecipe]]:
-    return {
-        RestaurantType.FAST_FOOD: build_menu_for_type(RestaurantType.FAST_FOOD),
-        RestaurantType.BISTRO: build_menu_for_type(RestaurantType.BISTRO),
-        RestaurantType.GASTRO: build_menu_for_type(RestaurantType.GASTRO),
-    }
+# constantes gameplay
+
+
+class FinancingPlan(BaseModel):
+    """Simple plan de financement retourné par `propose_financing`.
+
+    Champs clés: apports, prêts (banque/BPI), encours, mensualités et cash initial.
+    """
+
+    apport: float
+    bank_loan: float
+    bpi_loan: float
+    frais_dossier: float
+    bank_monthly: float
+    bpi_monthly: float
+    bank_outstanding: float
+    bpi_outstanding: float
+    cash_initial: float
+
+
+def propose_financing(fonds_price: float, equip_default: float) -> FinancingPlan:
+    """Calcule un plan de financement automatique selon des règles fixes.
+
+    Applique les constantes APPORT_FIXE, BANQUE_FIXE, BPI_MAX pour calculer
+    les prêts nécessaires, les mensualités et la trésorerie initiale disponible.
+
+    Args:
+        fonds_price: Prix du fonds de commerce
+        equip_default: Investissement équipement par défaut
+
+    Returns:
+        FinancingPlan complet avec tous les montants et mensualités
+    """
+    APPORT_FIXE = 50_000.0
+    BANQUE_FIXE = 250_000.0
+    BPI_MAX = 20_000.0
+    FRAIS_PCT = 0.03
+    TAUX_BANQUE = 0.045  # annuel
+    TAUX_BPI = 0.025  # annuel
+    DUREE_BANQUE = 60  # mois
+    DUREE_BPI = 48  # mois
+
+    besoin_total = fonds_price + equip_default
+
+    apport = APPORT_FIXE
+    bank_loan = BANQUE_FIXE
+    reste = besoin_total - (apport + bank_loan)
+
+    bpi_loan = max(0.0, min(BPI_MAX, reste))
+    frais_dossier = (bank_loan + bpi_loan) * FRAIS_PCT
+
+    # mensualités simples (amortissement constant sur durée, intérêt moyen)
+    bank_monthly = (bank_loan / DUREE_BANQUE) + (bank_loan * TAUX_BANQUE / 12)
+    bpi_monthly = (bpi_loan / DUREE_BPI) + (bpi_loan * TAUX_BPI / 12)
+
+    cash_initial = apport + bank_loan + bpi_loan - besoin_total - frais_dossier
+
+    return FinancingPlan(
+        apport=apport,
+        bank_loan=bank_loan,
+        bpi_loan=bpi_loan,
+        frais_dossier=frais_dossier,
+        bank_monthly=bank_monthly,
+        bpi_monthly=bpi_monthly,
+        bank_outstanding=bank_loan,
+        bpi_outstanding=bpi_loan,
+        cash_initial=cash_initial,
+    )
 
 
 def initialisation_restaurants() -> List[Restaurant]:
-    """Interactively create restaurants and post opening entries.
+    """Crée interactivement les restaurants joueurs avec financement et comptabilité.
 
-    Returns a list of initialized `Restaurant` instances with:
-    - default menus
-    - initial financing plan and cash
-    - opening accounting entry
+    Saisit le nombre de joueurs, puis pour chaque joueur :
+    - Type de restaurant (Fast Food, Bistrot, Gastro)
+    - Sélection automatique du local et équipement
+    - Calcul du plan de financement
+    - Initialisation de la comptabilité avec écriture d'ouverture
+    - Affichage du résumé financier et bilan initial
+
+    Returns:
+        Liste des restaurants initialisés et prêts à jouer
     """
     restaurants = []
-    menus_by_type = get_default_menus_simple()
+    menus_by_type = Restaurant.get_default_menus_simple()
 
     # Saisie du nombre de joueurs ici (la CLI n'envoie plus le param)
     nb_joueurs = int(
@@ -126,46 +207,36 @@ def initialisation_restaurants() -> List[Restaurant]:
 
 DISPLAY_COMPTA = False
 
-# Temps de service par couvert (minutes)
-SERVICE_MIN_PER_COVER = {
-    RestaurantType.FAST_FOOD: 1.5,  # prise de commande + délivrance
-    RestaurantType.BISTRO: 4.0,
-    RestaurantType.GASTRO: 7.0,
-}
 
-# --------- Helpers internes ---------
+def _sell_from_finished_fifo(
+    restaurant: Restaurant, quantity: int
+) -> Tuple[int, float]:
+    """Vend jusqu'à `quantity` portions depuis l'inventaire produits finis en FIFO.
 
-
-def _sell_from_finished_fifo(restaurant: Restaurant, quatity: int) -> Tuple[int, float]:
-    """
-    Sell up to `quatity` portions from finished goods inventory using FIFO (First In, First Out) method.
-
-    This function processes the restaurant's finished goods inventory in chronological order,
-    selling the oldest items first. It updates the inventory quantities in-place and calculates
-    the total revenue based on each batch's selling price.
+    Traite l'inventaire par ordre chronologique (premier entré, premier sorti),
+    met à jour les quantités en stock et calcule le chiffre d'affaires total.
 
     Args:
-        resto: Restaurant object containing the inventory to sell from
-        quatity: Maximum number of portions to sell (must be >= 0)
+        restaurant: Restaurant avec l'inventaire à traiter
+        quantity: Nombre maximum de portions à vendre (doit être >= 0)
 
     Returns:
-        Tuple containing:
-        - int: Total number of portions actually sold
-        - float: Total revenue generated from sales (rounded to 2 decimal places)
+        Tuple contenant:
+        - int: Nombre total de portions effectivement vendues
+        - float: Chiffre d'affaires total généré (arrondi à 2 décimales)
 
     Note:
-        - If no finished goods are available or quatity <= 0, returns (0, 0.0)
-        - Batches with 0 portions are automatically removed from inventory
-        - Uses safe attribute access with getattr() for robustness
+        Les lots vides sont automatiquement supprimés de l'inventaire.
+        Retourne (0, 0.0) si pas de stock ou quantité invalide.
     """
     inventory = restaurant.inventory
 
     # Early return if no inventory available or invalid quantity requested
-    if not inventory.finished or quatity <= 0:
+    if not inventory.finished or quantity <= 0:
         return (0, 0.0)
 
     # Initialize tracking variables
-    need = quatity  # Remaining quantity to sell
+    need = quantity  # Remaining quantity to sell
     sold = 0  # Total portions sold so far
     revenue = 0.0  # Total revenue accumulated
     i = 0  # Current batch index in FIFO queue
@@ -210,43 +281,78 @@ def _sell_from_finished_fifo(restaurant: Restaurant, quatity: int) -> Tuple[int,
 
 
 def _fixed_costs_of(restaurant: Restaurant) -> float:
-    """Retourne les coûts fixes mensuels (loyer + autres charges) d'un restaurant."""
+    """Calcule les coûts fixes mensuels totaux du restaurant.
+
+    Args:
+        restaurant: Restaurant dont calculer les coûts fixes
+
+    Returns:
+        Somme du loyer du local et des charges récurrentes mensuelles
+    """
     # Somme du loyer du local et des charges récurrentes mensuelles
     return restaurant.local.loyer + restaurant.charges_reccurentes
 
 
 def _rh_cost_of(restaurant: Restaurant) -> float:
-    """Calcule le coût salarial mensuel total à partir des objets `equipe` exposant `salaire_total`."""
+    """Calcule le coût salarial mensuel total de l'équipe.
+
+    Args:
+        restaurant: Restaurant avec l'équipe à évaluer
+
+    Returns:
+        Somme de tous les salaires totaux de l'équipe, arrondie à 2 décimales
+    """
     # Additionne tous les salaires de l'équipe et arrondit à 2 décimales
     return round(sum([employee.salaire_total for employee in restaurant.equipe]), 2)
 
 
 def _service_minutes_per_cover(rtype: RestaurantType) -> float:
-    """Retourne le temps de service nominal par couvert pour le type de concept donné."""
+    """Retourne le temps de service standard par couvert selon le type de restaurant.
+
+    Args:
+        rtype: Type de restaurant (FAST_FOOD, BISTRO, GASTRO)
+
+    Returns:
+        Durée en minutes pour servir un couvert de ce type de restaurant
+    """
     # Récupère la durée de service depuis la constante globale selon le type de restaurant
-    return float(SERVICE_MIN_PER_COVER[rtype])
+    return float()
 
 
 def _service_capacity_with_minutes(restaurant: Restaurant, clients_cap: int) -> int:
-    """Retourne la capacité finale limitée par les minutes de service restantes.
+    """Calcule la capacité de service limitée par les minutes disponibles.
 
-    Comportement de repli : si des attributs manquent, retourne la capacité d'entrée.
+    Args:
+        restaurant: Restaurant avec les minutes de service disponibles
+        clients_cap: Capacité théorique en nombre de clients
+
+    Returns:
+        Capacité effective limitée par le temps de service disponible.
+        Retourne la capacité d'entrée si les minutes sont illimitées.
     """
     # Calcule les minutes nécessaires par couvert selon le type de restaurant
-    min_per_cover = _service_minutes_per_cover(restaurant.type)
+    min_per_cover = restaurant.SERVICE_MINUTES_PER_COVER
     # Récupère les minutes de service encore disponibles
-    minutes_left = float(restaurant.service_minutes_left)
+    minutes_left = restaurant.service_minutes_left
 
     # Si minutes illimitées ou temps par couvert invalide, pas de limitation
     if minutes_left == float("inf") or min_per_cover <= 0:
-        return int(clients_cap)
+        return clients_cap
 
     # Retourne le minimum entre la capacité théorique et celle permise par le temps
-    return int(min(minutes_left // min_per_cover, clients_cap))
+    return min(minutes_left // min_per_cover, clients_cap)
 
 
 def _consume_service_minutes(restaurant: Restaurant, clients_served: int) -> None:
-    """Consomme les minutes de service si disponibles, sinon ne fait rien."""
+    """Consomme les minutes de service nécessaires pour servir les clients.
+
+    Args:
+        restaurant: Restaurant dont consommer les minutes de service
+        clients_served: Nombre de clients effectivement servis
+
+    Note:
+        Appelle la méthode du restaurant si disponible, sinon décrémente directement.
+    """
     # Calcule les minutes nécessaires selon le type de restaurant
     min_per_cover = _service_minutes_per_cover(restaurant.type)
     # Calcule le temps total requis pour servir tous les clients
@@ -261,14 +367,6 @@ def _consume_service_minutes(restaurant: Restaurant, clients_served: int) -> Non
     )
 
 
-def _finished_available(restaurant: Restaurant) -> int:
-    inventory = restaurant.inventory
-    if inventory.total_finished_portions:
-        return int(inventory.total_finished_portions())
-    # fallback ultra-simple : pas de produits finis → 0
-    return 0
-
-
 def _apply_client_losses(
     restaurant: Restaurant,
     demanded: int,
@@ -277,13 +375,26 @@ def _apply_client_losses(
     available_finished: int,
     sold: int,
 ) -> dict:
-    """Compute a simple breakdown of customer losses for this turn.
+    """Calcule la répartition des pertes clients et applique une pénalité de notoriété.
 
-    - manque_stock: capacity existed but finished stock was insufficient
-    - manque_capacite: RH/tempo limit before even considering stock
-    - autre: rounding/noise/overflow vs demand
+    Analyse les causes de perte de clients :
+    - manque_stock: capacité existante mais stock insuffisant
+    - manque_capacite: limite RH/service avant même le stock
+    - autre: arrondis/bruit/débordement vs demande
 
-    Also applies a tiny notoriety penalty based on lost share, clamped to [0..1].
+    Args:
+        restaurant: Restaurant à analyser
+        demanded: Nombre de clients demandant le service
+        capacity_rh: Capacité RH/salle maximale
+        cap_service: Capacité limitée par les minutes de service
+        available_finished: Stock de produits finis disponible
+        sold: Nombre effectivement servi
+
+    Returns:
+        Dictionnaire avec la répartition des pertes par cause
+
+    Note:
+        Applique une légère pénalité de notoriété basée sur le pourcentage de demande perdue.
     """
     asked = int(max(0, demanded))
     cap_stage = max(
@@ -324,17 +435,25 @@ def _apply_client_losses(
 
 class Game:
     def __init__(self, restaurants: List[Restaurant], scenario: Scenario):
-        """Main game engine orchestrating monthly turns.
+        """Moteur de jeu principal orchestrant les tours mensuels.
 
-        - restaurants: list of player restaurants
-        - scenario: market scenario providing demand context
+        Args:
+            restaurants: Liste des restaurants joueurs
+            scenario: Scénario de marché fournissant le contexte de demande
         """
         self.restaurants = restaurants
         self.scenario = scenario
         self.current_tour = 1
 
     def _show_scenario(self, scenario: Scenario) -> None:
-        """Best-effort scenario display to inform the player before starting."""
+        """Affiche les informations du scénario de marché pour informer le joueur.
+
+        Args:
+            scenario: Scénario à afficher avec population et segments
+
+        Note:
+            Affichage "best-effort" - gère les attributs manquants sans erreur.
+        """
         pop = scenario.population_total
         shares = scenario.segments_share
         if pop and shares:
@@ -345,17 +464,17 @@ class Game:
             print("==========================\n")
 
     def play(self) -> None:
-        """Run the game loop across all turns.
+        """Lance la boucle de jeu principale sur tous les tours.
 
-        Lifecycle per turn:
-        1) cleanup expired finished goods
-        2) reset RH minutes
-        3) allocate demand and clamp capacity
-        4) bound by service minutes and finished stock
-        5) sell FIFO from inventory and compute op result
-        6) compute losses and apply tiny notoriety penalty
-        7) post accounting entries and loan flows
-        8) update funds
+        Cycle de vie par tour :
+        1) Nettoyage des produits finis expirés
+        2) Reset des minutes RH
+        3) Allocation de la demande et limitation de capacité
+        4) Limitation par minutes de service et stock fini
+        5) Vente FIFO depuis l'inventaire et calcul du résultat opérationnel
+        6) Calcul des pertes et application de la pénalité de notoriété
+        7) Écritures comptables et flux d'emprunts
+        8) Mise à jour de la trésorerie
         """
         # ——— Scénario ———
         self._show_scenario(self.scenario)
@@ -363,7 +482,7 @@ class Game:
         restaurant = self.restaurants[0]
         # ——— Bureau du directeur juste après bilan initial ———
         for restaurant in self.restaurants:
-            if hasattr(restaurant, "equipe") and hasattr(restaurant, "type"):
+            if restaurant.equipe and restaurant.type:
                 print(f"\nOuverture du Bureau du Directeur pour {restaurant.name}")
                 # signature historique: (equipe, type_resto)
                 type_resto = restaurant.type
@@ -385,124 +504,134 @@ class Game:
                 resto.reset_rh_minutes()
 
             # 1) Allocation de la demande (via le marché/scénario)
-            if self.scenario is not None:
-                attrib = allocate_demand(self.restaurants, self.scenario)
-            else:
-                # Fallback distribution if no scenario is provided
-                demand = (
-                    self.scenario.demand_per_tour
-                    if self.scenario.demand_per_tour
-                    else 1000
-                )
-                # Répartition uniforme simple (non utilisée par défaut)
-                attrib = {
-                    i: int(demand / max(1, len(self.restaurants)))
-                    for i in range(len(self.restaurants))
-                }
-
+            attrib = allocate_demand(self.restaurants, self.scenario)
             served_cap = clamp_capacity(self.restaurants, attrib)
 
             # 2) Boucle par restaurant
-            for i, restaurant in enumerate(self.restaurants):
-                # Select items from menu
-                # Compute median price of menu
-                menu = restaurant.menu
+            for index_restaurant, restaurant in enumerate(self.restaurants):
+                # Calcul du prix médian du menu du restaurant
+                prix_median_menu = restaurant.compute_median_price()
 
-                prix_des_items = [item.price for item in menu if item is not None]
-                price_med = np.median(prix_des_items) if prix_des_items else 0.0
+                # Récupération de l'allocation de demande et contraintes de capacité pour ce restaurant
+                clients_demandes = attrib[index_restaurant]
+                capacite_max_clients = served_cap[index_restaurant]
 
-                clients_attr = int(attrib.get(i, 0))
-                clients_cap = int(served_cap.get(i, 0))
-
-                # Capacité bornée par minutes de service disponibles (serveur·euse·s)
-                clients_serv_cap = _service_capacity_with_minutes(
-                    restaurant, clients_cap
+                # Application de la contrainte de capacité de service basée sur les minutes de personnel disponibles
+                capacite_service_clients = _service_capacity_with_minutes(
+                    restaurant, capacite_max_clients
                 )
 
-                # Limite par stock de produits finis
-                finished_avail = _finished_available(restaurant)
-                target_serv = min(clients_attr, clients_serv_cap, finished_avail)
-
-                # --- Calcul pertes clients ---
-                lost_stock = max(0, clients_attr - min(clients_attr, finished_avail))
-                lost_capacity = max(
-                    0, clients_attr - min(clients_attr, clients_serv_cap)
+                # Application de la contrainte de stock basée sur les portions finies disponibles
+                portions_finies_disponibles = restaurant.get_available_portions()
+                clients_reellement_servis = min(
+                    clients_demandes,
+                    capacite_service_clients,
+                    portions_finies_disponibles,
                 )
-                # On évite double comptage : "other" = reste après stock et capacité
-                lost_other = max(
+
+                # --- Calcul des pertes de clients par type de contrainte ---
+                clients_perdus_par_stock = max(
                     0,
-                    clients_attr - target_serv - max(lost_stock, lost_capacity),
+                    clients_demandes
+                    - min(clients_demandes, portions_finies_disponibles),
                 )
-                losses = {
-                    "lost_stock": lost_stock,
-                    "lost_capacity": lost_capacity,
-                    "lost_other": lost_other,
-                    "lost_total": lost_stock + lost_capacity + lost_other,
+                clients_perdus_par_capacite = max(
+                    0,
+                    clients_demandes - min(clients_demandes, capacite_service_clients),
+                )
+                # Éviter le double comptage : "autre" représente les pertes restantes après contraintes de stock et capacité
+                clients_perdus_autres = max(
+                    0,
+                    clients_demandes
+                    - clients_reellement_servis
+                    - max(clients_perdus_par_stock, clients_perdus_par_capacite),
+                )
+                pertes_clients = {
+                    "lost_stock": clients_perdus_par_stock,
+                    "lost_capacity": clients_perdus_par_capacite,
+                    "lost_other": clients_perdus_autres,
+                    "lost_total": clients_perdus_par_stock
+                    + clients_perdus_par_capacite
+                    + clients_perdus_autres,
                 }
 
-                # Consommer minutes de service réelles
-                _consume_service_minutes(restaurant, target_serv)
+                # Consommation des minutes de service réelles basée sur les clients servis
+                _consume_service_minutes(restaurant, clients_reellement_servis)
 
-                # Ventes (FIFO produits finis) — CA exact
-                sold, revenue = _sell_from_finished_fifo(restaurant, target_serv)
+                # Exécution des ventes (FIFO depuis l'inventaire de produits finis) - chiffre d'affaires exact
+                portions_vendues, chiffre_affaires_total = _sell_from_finished_fifo(
+                    restaurant, clients_reellement_servis
+                )
 
-                # Comptes du tour (COGS reconnus à la production)
-                cogs = float(getattr(restaurant, "turn_cogs", 0.0) or 0.0)
-                fixed_costs = _fixed_costs_of(restaurant)
-                marketing = float(getattr(restaurant, "marketing_budget", 0.0) or 0.0)
-                rh_cost = _rh_cost_of(restaurant)
-                funds_start = float(getattr(restaurant, "funds", 0.0) or 0.0)
+                # Calcul des financiers du tour (COGS reconnus au moment de la production)
+                cout_marchandises_vendues = float(
+                    getattr(restaurant, "turn_cogs", 0.0) or 0.0
+                )
+                charges_fixes = _fixed_costs_of(restaurant)
+                depenses_marketing = float(
+                    getattr(restaurant, "marketing_budget", 0.0) or 0.0
+                )
+                couts_masse_salariale = _rh_cost_of(restaurant)
+                tresorerie_debut = float(getattr(restaurant, "funds", 0.0) or 0.0)
 
-                # Résultat opé (hors amort./intérêts — postés en compta juste après)
-                ca = float(revenue)
-                op_result = ca - cogs - fixed_costs - marketing - rh_cost
-                funds_end = round(funds_start + op_result, 2)
+                # Résultat opérationnel (hors amortissements/intérêts - postés en comptabilité juste après)
+                ventes_totales = float(chiffre_affaires_total)
+                resultat_operationnel = (
+                    ventes_totales
+                    - cout_marchandises_vendues
+                    - charges_fixes
+                    - depenses_marketing
+                    - couts_masse_salariale
+                )
+                tresorerie_fin = round(tresorerie_debut + resultat_operationnel, 2)
 
-                # Pertes de clients (bonus mini)
-                losses = _apply_client_losses(
+                # Application des pertes de clients (bonus mini)
+                pertes_clients = _apply_client_losses(
                     restaurant,
-                    demanded=clients_attr,
-                    capacity_rh=clients_cap,
-                    cap_service=clients_serv_cap,
-                    available_finished=finished_avail,
-                    sold=sold,
+                    demanded=clients_demandes,
+                    capacity_rh=capacite_max_clients,
+                    cap_service=capacite_service_clients,
+                    available_finished=portions_finies_disponibles,
+                    sold=portions_vendues,
                 )
                 # Tu peux logguer rapidement :
-                if losses["lost_total"] > 0:
+                if pertes_clients["lost_total"] > 0:
                     print(
                         f"⚠️ Pertes clients — {restaurant.name}: "
-                        f"{losses['lost_total']} (stock: {losses['lost_stock']}, "
-                        f"capacité: {losses['lost_capacity']}, autre: {losses['lost_other']})"
+                        f"{pertes_clients['lost_total']} (stock: {pertes_clients['lost_stock']}, "
+                        f"capacité: {pertes_clients['lost_capacity']}, autre: {pertes_clients['lost_other']})"
                     )
 
-                # Objet “turn result” minimal pour affichage
-                tr = TurnResult(
+                # Objet "turn result" minimal pour affichage
+                turn_result = TurnResult(
                     restaurant_name=restaurant.name,
                     tour=self.current_tour,
-                    clients_attr=clients_attr,
-                    clients_serv=sold,
-                    capacity=clients_cap,  # pour % capacité utilisée
-                    price_med=price_med,
-                    ca=round(ca, 2),
-                    cogs=round(cogs, 2),
-                    fixed_costs=round(fixed_costs, 2),
-                    marketing=round(marketing, 2),
-                    rh_cost=round(rh_cost, 2),
-                    funds_start=round(funds_start, 2),
-                    funds_end=round(funds_end, 2),
-                    losses=losses,
+                    clients_attribues=clients_demandes,
+                    clients_serv=portions_vendues,
+                    capacity=capacite_max_clients,  # pour % capacité utilisée
+                    price_med=prix_median_menu,
+                    ca=round(chiffre_affaires_total, 2),
+                    cogs=round(cout_marchandises_vendues, 2),
+                    fixed_costs=round(charges_fixes, 2),
+                    marketing=round(depenses_marketing, 2),
+                    rh_cost=round(couts_masse_salariale, 2),
+                    funds_start=round(tresorerie_debut, 2),
+                    funds_end=round(tresorerie_fin, 2),
+                    losses=pertes_clients,
                 )
 
                 # 3) Affichage gameplay
-                print_turn_result(tr)
+                print_turn_result(turn_result)
 
                 # 4) COMPTABILISATION (posts standards)
-                post_sales(restaurant.ledger, self.current_tour, tr.ca)
-                post_cogs(restaurant.ledger, self.current_tour, tr.cogs)
+                post_sales(restaurant.ledger, self.current_tour, turn_result.ca)
+                post_cogs(restaurant.ledger, self.current_tour, turn_result.cogs)
                 post_services_ext(
-                    restaurant.ledger, self.current_tour, tr.fixed_costs + tr.marketing
+                    restaurant.ledger,
+                    self.current_tour,
+                    turn_result.fixed_costs + turn_result.marketing,
                 )
-                post_payroll(restaurant.ledger, self.current_tour, tr.rh_cost)
+                post_payroll(restaurant.ledger, self.current_tour, turn_result.rh_cost)
 
                 # Dotations aux amortissements
                 dot = month_amortization(restaurant.equipment_invest)
@@ -519,7 +648,7 @@ class Game:
 
                 # BPI
                 i_bpi, p_bpi, restaurant.bpi_outstanding = split_interest_principal(
-                    getattr(restaurant, "bpi_outstanding", 0.0),
+                    getattr(turn_result, "bpi_outstanding", 0.0),
                     getattr(restaurant, "bpi_rate_annual", 0.0),
                     getattr(restaurant, "monthly_bpi", 0.0),
                 )

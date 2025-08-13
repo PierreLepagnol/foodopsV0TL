@@ -1,7 +1,7 @@
 from typing import List
 from FoodOPS_V1.domain.recipe import Recipe, RecipeLine, PrepStep, PricePolicy
 from FoodOPS_V1.rules import costing
-from FoodOPS_V1.domain.types import RestaurantType
+from FoodOPS_V1.domain.restaurant import RestaurantType
 from FoodOPS_V1.domain.ingredients import CATALOG, Ingredient
 
 

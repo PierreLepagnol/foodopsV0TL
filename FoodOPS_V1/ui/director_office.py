@@ -357,7 +357,7 @@ def bureau_directeur(equipe, type_resto, resto=None, current_tour=1):
             funds = 0.0
             notoriety = 0.5
             overheads = {"autres": 0.0}
-            local = type("L", (), {"visibilite": 1.0})()
+            local = type("L", (), {"visibility": 1.0})()
 
         bureau_directeur._r = Dummy()
     r = bureau_directeur._r

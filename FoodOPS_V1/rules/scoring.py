@@ -1,25 +1,19 @@
-import json
 from pathlib import Path
 from typing import Annotated, Dict, Optional
 
 import numpy as np
-from pydantic import Field, RootModel
+from pydantic import BaseModel, Field, RootModel
 
 from FoodOPS_V1.domain import Restaurant
-from FoodOPS_V1.domain.market import Segment
-from FoodOPS_V1.domain.types import RestaurantType
+from FoodOPS_V1.domain.market import BUDGET_PER_SEGMENT, Segment
+from FoodOPS_V1.domain.restaurant import RestaurantType
 from FoodOPS_V1.domain.recipe import SimpleRecipe
+from FoodOPS_V1.utils import load_and_validate
 
 # ==========================
 # Poids des critères (somme ~ 1)
 # ==========================
-SCORING_WEIGHTS: Dict[str, float] = {
-    "fit": 0.25,  # adéquation concept <==> segment
-    "prix": 0.25,  # accessibilité prix vs budget
-    "qualite": 0.25,  # qualité perçue (recettes, RH, adéquation gamme)
-    "notoriete": 0.15,  # "marque", bouche-à-oreille
-    "visibilite": 0.10,  # emplacement/visibilité du local
-}
+
 
 # ==========================
 # Petits helpers génériques
@@ -186,7 +180,7 @@ def price_fit(price: float, budget_moyen: float) -> float:
 class ConceptFitModel(
     RootModel[
         Dict[
-            RestaurantType,
+            str,
             Dict[Segment, Annotated[float, Field(strict=True, ge=0, le=1)]],
         ]
     ]
@@ -194,59 +188,26 @@ class ConceptFitModel(
     pass
 
 
-def _load_concept_fit(data_path: Path) -> ConceptFitModel:
-    """
-    Load and validate concept fit data from concept_fit.json.
-
-    Returns
-    -------
-    Dict[RestaurantType, Dict[Segment, float]]
-        Validated concept fit matrix
-
-    Raises
-    ------
-    FileNotFoundError
-        If concept_fit.json is not found
-    ValueError
-        If data validation fails
-    """
-    if not data_path.exists():
-        raise FileNotFoundError(f"Concept fit data file not found: {data_path}")
-
-    with data_path.open("r", encoding="utf-8") as f:
-        raw_data = json.load(f)
-        return ConceptFitModel.model_validate(raw_data)
+directory = Path("/home/lepagnol/Documents/Perso/Games/foodopsV0TL/FoodOPS_V1/data")
+path = directory / "concept_fit.json"
+CONCEPT_FIT = load_and_validate(path, ConceptFitModel)
 
 
-# Load and validate concept fit data
-path = Path(
-    "/home/lepagnol/Documents/Perso/Games/foodopsV0TL/FoodOPS_V1/data/concept_fit.json"
-)
-_CONCEPT_FIT = _load_concept_fit(path)
+class ScoreWeightsModel(BaseModel):
+    fit: float  # adéquation concept <==> segment
+    prix: float  # accessibilité prix vs budget
+    qualite: float  # qualité perçue (recettes, RH, adéquation gamme)
+    notoriete: float  # "marque", bouche-à-oreille
+    visibility: float  # emplacement/visibilité du local
 
 
-def _visibility_norm(restaurant: Restaurant) -> float:
-    """
-    Normalise la visibilité du local en [0..1].
-    On suppose local.visibility ~ 0..5 (adapter si autre échelle).
-
-    Exemple
-    -------
-    1.0
-    """
-    local = getattr(restaurant, "local", None)
-    vis = getattr(local, "visibility", None)
-    if vis is None:
-        return 0.5
-    try:
-        return float(vis) / 5.0
-    except Exception:
-        return 0.5
+path = directory / "scoring_weights.json"
+SCORING_WEIGHTS = load_and_validate(path, ScoreWeightsModel)
 
 
 def attraction_score(restaurant: Restaurant, segment_client: Segment) -> float:
     """
-    Calcule un score d'attraction (0..1) pour un restaurant et un profil client.
+    Calcule un score d'attraction (entre 0.0 et 1.0) pour un restaurant et un profil client.
     Combine :
       - fit concept/segment,
       - adéquation prix vs budget,
@@ -261,20 +222,14 @@ def attraction_score(restaurant: Restaurant, segment_client: Segment) -> float:
 
     # Qualité moyenne perçue
     qmean = menu_quality_mean(restaurant)
-    # Visibilité normalisée
-    vis = _visibility_norm(restaurant)
-    # Notoriété bornée
-    notoriety = float(restaurant.notoriety)
+    vis = restaurant.local.visibility_normalized
+    notoriety = restaurant.notoriety
 
     # Fit concept <==> segment
-    concept = restaurant.type.value
-    concept = str(concept)
-    print("concept", concept)
-    print("segment_client", segment_client.value)
-    fit = _CONCEPT_FIT[concept][segment_client.value]
+    fit = CONCEPT_FIT[restaurant.type][segment_client]
 
     # Adéquation prix <==> budget segment
-    budget_moyen = segment_client.budget_moyen
+    budget_moyen = BUDGET_PER_SEGMENT.get(segment_client, 15.0)
     prix_ok = price_fit(price, budget_moyen)
 
     attrs = {
@@ -282,17 +237,9 @@ def attraction_score(restaurant: Restaurant, segment_client: Segment) -> float:
         "prix": prix_ok,
         "qualite": qmean,
         "notoriete": notoriety,
-        "visibilite": vis,
+        "visibility": vis,
     }
 
-    w = SCORING_WEIGHTS
-    score = (
-        w["fit"] * attrs["fit"]
-        + w["prix"] * attrs["prix"]
-        + w["qualite"] * attrs["qualite"]
-        + w["notoriete"] * attrs["notoriete"]
-        + w["visibilite"] * attrs["visibilite"]
-    )
+    score = sum(SCORING_WEIGHTS[key] * attrs[key] for key in SCORING_WEIGHTS)
 
-    # Garde bien le score borné
-    return score
+    return max(0.0, score)

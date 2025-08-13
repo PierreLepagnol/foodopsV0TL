@@ -8,7 +8,7 @@ import json
 from enum import Enum
 from typing import Dict, List
 from pydantic import BaseModel, Field, ValidationError
-from FoodOPS_V1.domain.types import RestaurantType
+from FoodOPS_V1.domain.restaurant import RestaurantType
 
 
 class IngredientCategory(Enum):
@@ -21,6 +21,12 @@ class IngredientCategory(Enum):
     CONDIMENT = "CONDIMENT"
     BOULANGERIE = "BOULANGERIE"
     AUTRE = "AUTRE"
+
+
+class Tier(Enum):
+    ALL = "ALL"
+    BISTRO_PLUS = "BISTRO_PLUS"
+    GASTRO_ONLY = "GASTRO_ONLY"
 
 
 class FoodGrade(Enum):
@@ -37,9 +43,6 @@ class FoodGrade(Enum):
 
 class CatalogConfig(BaseModel):
     """Configuration model for ingredient catalog validation."""
-
-    tiers_allowed: List[str] = Field(default=["ALL", "BISTRO+", "GASTRO_ONLY"])
-    fit_score_keys: List[str] = Field(default=["FAST_FOOD", "BISTRO", "GASTRO"])
 
 
 # Coefficients de perception qualité selon le type de resto et la gamme
@@ -76,7 +79,8 @@ class Ingredient(BaseModel):
     prices_by_grade: Dict[FoodGrade, float]
     perish_days: int
     fit_score: Dict[str, float]
-    tier: str = "ALL"
+    tier: Tier = Field(default=Tier.ALL)
+    fit_score_keys: List[str] = Field(default=["FAST_FOOD", "BISTRO", "GASTRO"])
     grade: FoodGrade = FoodGrade.G1_FRAIS_BRUT
 
 

@@ -8,55 +8,38 @@ Ce module fournit des utilitaires pour:
 - construire un menu varié pour un type de restaurant donné.
 
 Les fonctions internes (préfixées par « _ ») sont conçues pour être testables
-individuellement et réutilisées par la fonction publique `build_menu_for_type`.
-Les docstrings incluent des exemples doctest pour faciliter la validation rapide.
 """
 
-from typing import List, Tuple, Dict
+from typing import List, Dict
 import random
 
 from FoodOPS_V1.domain.recipe import SimpleRecipe, Technique, Complexity
-from FoodOPS_V1.domain.types import RestaurantType
+from FoodOPS_V1.domain.restaurant import MARGIN_BY_RESTO, Restaurant, RestaurantType
 from FoodOPS_V1.domain.ingredients import (
     IngredientCategory,
     FoodGrade,
     Ingredient,
     CATALOG,
+    Tier,
 )
 
-# ---------------- Compatibilités & styles ----------------
-
-_ALLOWED_COMBOS: Tuple[Tuple[IngredientCategory, IngredientCategory], ...] = (
+_COMPATIBLE_INGREDIENT_COMBINATIONS = (
     (IngredientCategory.VIANDE, IngredientCategory.LEGUME),
     (IngredientCategory.VIANDE, IngredientCategory.FECULENT),
     (IngredientCategory.POISSON, IngredientCategory.LEGUME),
     (IngredientCategory.POISSON, IngredientCategory.FECULENT),
 )
 
-_TECH_BY_CAT = {
+_COOKING_TECHNIQUES_BY_CATEGORY = {
     IngredientCategory.VIANDE: [Technique.GRILLE, Technique.SAUTE],
-    IngredientCategory.POISSON: [
-        Technique.FOUR,
-        Technique.SAUTE,
-        Technique.FROID,
-    ],
-    IngredientCategory.LEGUME: [
-        Technique.FOUR,
-        Technique.SAUTE,
-        Technique.FROID,
-    ],
+    IngredientCategory.POISSON: [Technique.FOUR, Technique.SAUTE, Technique.FROID],
+    IngredientCategory.LEGUME: [Technique.FOUR, Technique.SAUTE, Technique.FROID],
     IngredientCategory.FECULENT: [Technique.FOUR, Technique.SAUTE],
     IngredientCategory.CONDIMENT: [Technique.FROID, Technique.SAUTE],
     IngredientCategory.BOULANGERIE: [Technique.FOUR, Technique.FROID],
     IngredientCategory.PRODUIT_LAITIER: [Technique.FROID, Technique.SAUTE],
 }
 
-# marges “type” pour prix de vente
-MARGIN_BY_RESTO = {
-    RestaurantType.FAST_FOOD: 2.5,
-    RestaurantType.BISTRO: 3.0,
-    RestaurantType.GASTRO: 3.8,
-}
 
 # portions (kg) indicatives par catégorie (pour 1 portion)
 PORTION_KG = {
@@ -70,12 +53,13 @@ PORTION_KG = {
 }
 
 
-def _allowed_for_type(item: Ingredient, rtype: RestaurantType) -> bool:
-    """Vérifie si un item du catalogue est accessible au type de restaurant.
+def _allowed_for_type(ingredient: Ingredient, rtype: RestaurantType) -> bool:
+    """
+    Vérifie si un ingredient du catalogue est accessible au type de restaurant.
 
     Paramètres
     ----------
-    item : Ingredient
+    ingredient : Ingredient
         L'élément du catalogue à tester (contient la clé `tier`).
     rtype : RestaurantType
         Type de restaurant pour lequel on teste l'éligibilité.
@@ -87,39 +71,27 @@ def _allowed_for_type(item: Ingredient, rtype: RestaurantType) -> bool:
 
     Notes
     -----
-    La logique s'appuie sur `item.tier`:
+    La logique s'appuie sur `ingredient.tier`:
     - ``ALL``: disponible partout
     - ``BISTRO+``: disponible en ``BISTRO`` et ``GASTRO``
     - ``GASTRO_ONLY``: uniquement en ``GASTRO``
 
-    Exemple
-    -------
-    >>> from FoodOPS_V1.domain.ingredients import CATALOG
-    >>> from FoodOPS_V1.domain.types import RestaurantType
-    >>> it = CATALOG["Homard"]
-    >>> _allowed_for_type(it, RestaurantType.GASTRO)
-    True
-    >>> _allowed_for_type(it, RestaurantType.BISTRO)
-    False
     """
-    if item.tier == "ALL":
+    if ingredient.tier == Tier.ALL:
         return True
-    if item.tier == "BISTRO+" and rtype in (
-        RestaurantType.BISTRO,
-        RestaurantType.GASTRO,
-    ):
-        return True
-    if item.tier == "GASTRO_ONLY" and rtype == RestaurantType.GASTRO:
-        return True
+    if ingredient.tier == Tier.BISTRO_PLUS:
+        return rtype in (RestaurantType.BISTRO, RestaurantType.GASTRO)
+    if ingredient.tier == Tier.GASTRO_ONLY:
+        return rtype == RestaurantType.GASTRO
     return False
 
 
-def _name_simple(ing_name: str, tech: Technique, rtype: RestaurantType) -> str:
+def _name_simple(ingredient_name: str, tech: Technique, rtype: RestaurantType) -> str:
     """Construit un nom de recette simple adapté au concept.
 
     Paramètres
     ----------
-    ing_name : str
+    ingredient_name : str
         Nom de l'ingrédient principal.
     tech : Technique
         Technique culinaire retenue.
@@ -143,22 +115,23 @@ def _name_simple(ing_name: str, tech: Technique, rtype: RestaurantType) -> str:
     >>> _name_simple("Asperge", Technique.FOUR, RestaurantType.BISTRO)
     'Asperge rôti'
     """
-    # petits templates selon concept
+    # Fast food special cases
     if rtype == RestaurantType.FAST_FOOD:
-        if "Boeuf haché" in ing_name:
+        if "Boeuf haché" in ingredient_name:
             return "Burger classique"
-        if "Poulet" in ing_name:
+        if "Poulet" in ingredient_name:
             return "Burger de poulet"
-        if "Cabillaud" in ing_name:
+        if "Cabillaud" in ingredient_name:
             return "Fish & Chips"
-    # générique
-    base = {
+
+    # Generic technique-based naming
+    technique_labels = {
         Technique.GRILLE: "grillé",
         Technique.SAUTE: "poêlé",
         Technique.FOUR: "rôti",
         Technique.FROID: "froid",
-    }[tech]
-    return f"{ing_name} {base}"
+    }
+    return f"{ingredient_name} {technique_labels[tech]}"
 
 
 def _name_combo(a: str, b: str, tech: Technique, rtype: RestaurantType) -> str:
@@ -190,20 +163,23 @@ def _name_combo(a: str, b: str, tech: Technique, rtype: RestaurantType) -> str:
     >>> _name_combo("Saumon", "Asperge", Technique.FOUR, RestaurantType.GASTRO)
     'Saumon & Asperge, au four'
     """
-    label = {
+    tech_labels = {
         Technique.GRILLE: "grillé",
         Technique.SAUTE: "poêlé",
         Technique.FOUR: "au four",
         Technique.FROID: "froid",
-    }[tech]
-    # gastro: noms valorisants
+    }
+
+    label = tech_labels[tech]
+
     if rtype == RestaurantType.GASTRO:
         return f"{a} & {b}, {label}"
     return f"{a} + {b} ({label})"
 
 
 def _choose_grade(
-    prices_by_grade: Dict[FoodGrade, float], rtype: RestaurantType
+    restaurant: Restaurant,
+    prices_by_grade: Dict[FoodGrade, float],
 ) -> FoodGrade:
     """Choisit une gamme d'ingrédient cohérente avec le type de resto.
 
@@ -225,35 +201,23 @@ def _choose_grade(
     - ``FAST_FOOD``: pratique/surgelé prioritaire
     - ``BISTRO``: frais prioritaire, puis surgelé
     - ``GASTRO``: frais prioritaire
-
-    Exemple
-    -------
-    >>> from FoodOPS_V1.domain.ingredients import FoodGrade
-    >>> _choose_grade({FoodGrade.G1_FRAIS_BRUT: 7.5, FoodGrade.G3_SURGELE: 6.2}, RestaurantType.FAST_FOOD) in (FoodGrade.G3_SURGELE, FoodGrade.G1_FRAIS_BRUT)
-    True
     """
     # Ordre de préférence par type de restaurant
-    preferences = {
-        RestaurantType.FAST_FOOD: [FoodGrade.G3_SURGELE, FoodGrade.G1_FRAIS_BRUT],
-        RestaurantType.BISTRO: [FoodGrade.G1_FRAIS_BRUT, FoodGrade.G3_SURGELE],
-        RestaurantType.GASTRO: [FoodGrade.G1_FRAIS_BRUT, FoodGrade.G3_SURGELE],
-    }
 
     available_grades = set(prices_by_grade.keys())
-    for grade in preferences[rtype]:
+    for grade in restaurant.preferences:
         if grade in available_grades:
             return grade
 
-    # Fallback: première gamme disponible
     return next(iter(prices_by_grade))
 
 
-def _fit_for_ing(ing_name: str, rtype: RestaurantType) -> float:
+def _fit_for_ing(ingredient_name: str, rtype: RestaurantType) -> float:
     """Retourne un score de fit catalogue (0..1) pour un ingrédient et un concept.
 
     Paramètres
     ----------
-    ing_name : str
+    ingredient_name : str
         Nom de l'ingrédient dans le catalogue.
     rtype : RestaurantType
         Type de restaurant.
@@ -261,55 +225,32 @@ def _fit_for_ing(ing_name: str, rtype: RestaurantType) -> float:
     Retour
     ------
     float
-        Score de compatibilité catalogue pour ce concept (défaut à 0.7).
-
-    Exemple
-    -------
-    >>> _fit_for_ing("Poulet", RestaurantType.FAST_FOOD)
-    1.0
+        Score de compatibilité catalogue pour ce concept.
     """
-    item = CATALOG[ing_name]
-    key = rtype.name  # "FAST_FOOD" | "BISTRO" | "GASTRO"
-    return float(item.fit_score.get(key, 0.7))
+    item = CATALOG[ingredient_name]
+    return float(item.fit_score[rtype.name])
 
 
-def _quality_from_ings(ings: List[str], rtype: RestaurantType) -> float:
-    """Estime une qualité perçue basée sur le fit moyen des ingrédients.
+def _quality_from_ingredients(
+    ingredients: List[Ingredient], rtype: RestaurantType
+) -> float:
+    """Estime la qualité perçue basée sur le fit moyen des ingrédients.
 
-    Paramètres
-    ----------
-    ings : List[str]
-        Noms des ingrédients utilisés.
-    rtype : RestaurantType
-        Type de restaurant servant pour le calcul des fits.
-
-    Retour
-    ------
-    float
-        Qualité perçue, bornée grossièrement entre 0 et 1.
-
-    Notes
-    -----
-    Calcul: moyenne des ``_fit_for_ing`` multipliée par une base 0.7.
-
-    Exemple
-    -------
-    >>> round(_quality_from_ings(["Poulet", "Pomme de terre"], RestaurantType.FAST_FOOD), 3)
-    0.7
+    Retour: qualité perçue (0-1), calculée comme moyenne des fits * 0.7.
     """
     # qualité perçue = moyenne des fit * un petit base (0.7)
-    if not ings:
+    if not ingredients:
         return 0.0
-    fits = [_fit_for_ing(n, rtype) for n in ings]
+    fits = [_fit_for_ing(i.name, rtype) for i in ingredients]
     return round(0.7 * (sum(fits) / len(fits)), 3)
 
 
-def _cost_per_portion(ing_name: str, grade: FoodGrade) -> float:
+def _cost_per_portion(ingredient_name: str, grade: FoodGrade) -> float:
     """Coût matière par portion pour un ingrédient/grade.
 
     Paramètres
     ----------
-    ing_name : str
+    ingredient_name : str
         Nom de l'ingrédient dans le catalogue.
     grade : FoodGrade
         Gamme choisie pour l'ingrédient.
@@ -323,14 +264,8 @@ def _cost_per_portion(ing_name: str, grade: FoodGrade) -> float:
     -----
     La portion (kg) est approchée via `PORTION_KG` par catégorie principale.
     Par défaut, une portion de 0.08 kg est utilisée si la catégorie n'est pas listée.
-
-    Exemple
-    -------
-    >>> from FoodOPS_V1.domain.ingredients import FoodGrade
-    >>> _cost_per_portion("Poulet", FoodGrade.G1_FRAIS_BRUT)
-    1.12
     """
-    item = CATALOG[ing_name]
+    item = CATALOG[ingredient_name]
     price_kg = item.prices_by_grade[grade]
     cats = item.categories
     # si plusieurs catégories, prend la 1ère pour la portion
@@ -360,11 +295,6 @@ def _compute_price(
     Notes
     -----
     Un supplément de marge est appliqué aux combos pour refléter la valeur perçue.
-
-    Exemple
-    -------
-    >>> _compute_price(1.2, RestaurantType.FAST_FOOD, Complexity.SIMPLE)
-    3.0
     """
     mult = MARGIN_BY_RESTO[rtype]
     if complexity == Complexity.COMBO:
@@ -387,20 +317,14 @@ def _gen_simple(item: Ingredient, rtype: RestaurantType) -> SimpleRecipe:
     SimpleRecipe
         Recette simple prête à être affichée dans un menu.
 
-    Exemple
-    -------
-    >>> it = CATALOG["Poulet"]
-    >>> rec = _gen_simple(it, RestaurantType.FAST_FOOD)
-    >>> isinstance(rec, SimpleRecipe)
-    True
     """
     # pick une gamme cohérente
     grade = _choose_grade(item.prices_by_grade, rtype)
-    tech = random.choice(_TECH_BY_CAT[item.categories[0]])
+    tech = random.choice(_COOKING_TECHNIQUES_BY_CATEGORY[item.categories[0]])
     name = _name_simple(item.name, tech, rtype)
     c_per_portion = _cost_per_portion(item.name, grade)
     price = _compute_price(c_per_portion, rtype, Complexity.SIMPLE)
-    qual = _quality_from_ings([item.name], rtype)
+    qual = _quality_from_ingredients([item.name], rtype)
 
     return SimpleRecipe(
         name=name,
@@ -429,19 +353,15 @@ def _compatible(a: Ingredient, b: Ingredient) -> bool:
     -----
     La compatibilité est vérifiée sur la catégorie à l'index 0 de chaque item
     et est symétrique (A,B) ≡ (B,A).
-
-    Exemple
-    -------
-    >>> _compatible(CATALOG["Saumon"], CATALOG["Asperge"])  # poisson+legume
-    True
-    >>> _compatible(CATALOG["Saumon"], CATALOG["Beurre"])  # poisson+laitier
-    False
     """
     ca = a.categories[0]
     cb = b.categories[0]
     pair = (ca, cb)
     rev = (cb, ca)
-    return pair in _ALLOWED_COMBOS or rev in _ALLOWED_COMBOS
+    return (
+        pair in _COMPATIBLE_INGREDIENT_COMBINATIONS
+        or rev in _COMPATIBLE_INGREDIENT_COMBINATIONS
+    )
 
 
 def _gen_combo(a: Ingredient, b: Ingredient, rtype: RestaurantType) -> SimpleRecipe:
@@ -465,24 +385,21 @@ def _gen_combo(a: Ingredient, b: Ingredient, rtype: RestaurantType) -> SimpleRec
     pour chaque catégorie primaire, avec repli sur ``SAUTE`` s'il n'y a pas
     d'intersection.
 
-    Exemple
-    -------
-    >>> a, b = CATALOG["Saumon"], CATALOG["Asperge"]
-    >>> rec = _gen_combo(a, b, RestaurantType.BISTRO)
-    >>> isinstance(rec, SimpleRecipe)
-    True
     """
     grade_a = _choose_grade(a.prices_by_grade, rtype)
     grade_b = _choose_grade(b.prices_by_grade, rtype)
     tech = random.choice(
-        list(set(_TECH_BY_CAT[a.categories[0]]) & set(_TECH_BY_CAT[b.categories[0]]))
+        list(
+            set(_COOKING_TECHNIQUES_BY_CATEGORY[a.categories[0]])
+            & set(_COOKING_TECHNIQUES_BY_CATEGORY[b.categories[0]])
+        )
         or [Technique.SAUTE]
     )
 
     name = _name_combo(a.name, b.name, tech, rtype)
     c_portion = _cost_per_portion(a.name, grade_a) + _cost_per_portion(b.name, grade_b)
     price = _compute_price(c_portion, rtype, Complexity.COMBO)
-    qual = _quality_from_ings([a.name, b.name], rtype)
+    qual = _quality_from_ingredients([a.name, b.name], rtype)
 
     return SimpleRecipe(
         name=name,
@@ -494,7 +411,7 @@ def _gen_combo(a: Ingredient, b: Ingredient, rtype: RestaurantType) -> SimpleRec
     )
 
 
-def build_menu_for_type(rtype: RestaurantType) -> List[SimpleRecipe]:
+def build_menu_for_type(restaurant: Restaurant) -> List[SimpleRecipe]:
     """Génère un menu varié pour un type de restaurant donné.
 
     Crée un menu équilibré composé de recettes simples et de combos,
@@ -531,12 +448,13 @@ def build_menu_for_type(rtype: RestaurantType) -> List[SimpleRecipe]:
     True
     """
     # Définir la taille cible du menu selon le type de restaurant
+
     targets = {
-        RestaurantType.FAST_FOOD: 10,
-        RestaurantType.BISTRO: 15,
-        RestaurantType.GASTRO: 20,
+        "FAST_FOOD": 10,
+        "BISTRO": 15,
+        "GASTRO": 20,
     }
-    target = targets[rtype]
+    target = targets[restaurant.type]
 
     # Filtrer le catalogue pour ne garder que les ingrédients accessibles au type de restaurant.
     # (Réduit l'espace de recherche et évite de proposer des items inadaptés au concept.)

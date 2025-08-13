@@ -4,7 +4,7 @@ Test rapide : instancie 1 resto de chaque type, seed l'inventaire, produit et ve
 """
 
 from FoodOPS_V1.domain.restaurant import Restaurant
-from FoodOPS_V1.domain.types import RestaurantType
+from FoodOPS_V1.domain.restaurant import RestaurantType
 from FoodOPS_V1.domain.staff import Employe, Role
 from FoodOPS_V1.domain.inventory import Inventory, FoodGrade
 from FoodOPS_V1.domain.recipe import SimpleRecipe

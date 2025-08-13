@@ -1,4 +1,8 @@
+import json
+from pathlib import Path
 from typing import Callable
+
+from pydantic import BaseModel
 
 
 def get_input(
@@ -20,3 +24,16 @@ def get_input(
         except Exception:
             pass
         print(error_message)
+
+
+def load_and_validate(data_path: Path, model: BaseModel) -> BaseModel:
+    """
+    Load and validate model data from data_path.
+    Returns a validated model instance.
+    """
+    if not data_path.exists():
+        raise FileNotFoundError(f"Concept fit data file not found: {data_path}")
+
+    with data_path.open("r", encoding="utf-8") as f:
+        raw_data = json.load(f)
+        return model.model_validate(raw_data)
