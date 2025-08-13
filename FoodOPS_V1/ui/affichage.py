@@ -7,6 +7,75 @@ def format_to_euro(x: float) -> str:
     return f"{x:,.0f} €".replace(",", " ").replace(".0", "")
 
 
+def _pct(a: float, b: float) -> str:
+    """Calculate and format a percentage ratio between two values.
+
+    Parameters
+    ----------
+    a : float
+        The numerator value.
+    b : float
+        The denominator value.
+
+    Returns
+    -------
+    str
+        Formatted percentage string (e.g., " 75.0%").
+        Returns "—" if b <= 0 or calculation fails.
+    """
+    if b <= 0:
+        return "—"
+    ratio = a / b
+    percentage = max(0.0, min(100.0, ratio * 100.0))
+    return f"{percentage:5.1f}%"
+
+
+def _bar(current: int, maxv: int, width: int = 24, fill_char: str = "█") -> str:
+    """Generate a text-based progress bar representation.
+
+    Parameters
+    ----------
+    current : int
+        The current value to represent.
+    maxv : int
+        The maximum possible value (100% fill).
+    width : int, optional
+        Total width of the bar in characters (default: 24).
+    fill_char : str, optional
+        Character used to fill the bar (default: "█").
+
+    Returns
+    -------
+    str
+        A string representation of the progress bar.
+        Returns empty spaces if maxv <= 0.
+    """
+    if maxv <= 0:
+        return " " * width
+    ratio = max(0.0, min(1.0, float(current) / float(maxv)))
+    n = int(round(ratio * width))
+    return fill_char * n + " " * (width - n)
+
+
+def _num(x) -> int:
+    """Safely convert a value to an integer.
+
+    Parameters
+    ----------
+    x : Any
+        The value to convert to an integer.
+
+    Returns
+    -------
+    int
+        The converted integer value, or 0 if conversion fails.
+    """
+    try:
+        return int(x)
+    except Exception:
+        return 0
+
+
 def _posneg(val):
     """Affiche les valeurs positives sans signe, et les négatives avec un signe négatif."""
     return f"{val:,.2f} €".replace(",", " ")
@@ -15,19 +84,17 @@ def _posneg(val):
 def print_income_statement(cr, title: str):
     print(title)
     print("=" * 40)
-    print(f"  💶 Chiffre d'affaires (70) : {_posneg(cr["Chiffre d'affaires (70)"])}")
-    print(f"  🛒 Achats consommés (60) : {_posneg(cr['Achats consommés (60)'])}")
+    print(f"💶 Chiffre d'affaires (70) : {_posneg(cr["Chiffre d'affaires (70)"])}")
+    print(f"🛒 Achats consommés (60) : {_posneg(cr['Achats consommés (60)'])}")
     print(
-        f"  🛠 Services extérieurs (61/62) : {_posneg(cr['Services extérieurs (61/62)'])}"
+        f"🛠 Services extérieurs (61/62) : {_posneg(cr['Services extérieurs (61/62)'])}"
     )
+    print(f"👥 Charges de personnel (64) : {_posneg(cr['Charges de personnel (64)'])}")
     print(
-        f"  👥 Charges de personnel (64) : {_posneg(cr['Charges de personnel (64)'])}"
-    )
-    print(
-        f"  📉 Dotations amortissements (68) : {_posneg(cr['Dotations amortissements (68)'])}"
+        f"📉 Dotations amortissements (68) : {_posneg(cr['Dotations amortissements (68)'])}"
     )
     print("-" * 40)
-    print(f"  📈 Résultat d'exploitation : {_posneg(cr["Résultat d'exploitation"])}")
+    print(f"📈 Résultat d'exploitation : {_posneg(cr["Résultat d'exploitation"])}")
     print("=" * 40)
 
 
@@ -35,19 +102,19 @@ def print_balance_sheet(balance_sheet):
     print("\n📒 Bilan")
     print("=" * 40)
     print("Actif :")
-    print(f"  💰 Trésorerie : {_posneg(balance_sheet['Trésorerie'])}")
-    print(f"  📦 Stock : {_posneg(balance_sheet['Stock'])}")
+    print(f"💰 Trésorerie : {_posneg(balance_sheet['Trésorerie'])}")
+    print(f"📦 Stock : {_posneg(balance_sheet['Stock'])}")
     print(
-        f"  🏢 Immobilisations nettes : {_posneg(balance_sheet['Immobilisations nettes'])}"
+        f"🏢 Immobilisations nettes : {_posneg(balance_sheet['Immobilisations nettes'])}"
     )
     print("-" * 40)
     print("Passif :")
-    print(f"  🏦 Emprunts BPI : {_posneg(balance_sheet['Emprunts BPI'])}")
-    print(f"  🏦 Emprunts bancaires : {_posneg(balance_sheet['Emprunts bancaires'])}")
-    print(f"  📊 Capitaux propres : {_posneg(balance_sheet['Capitaux propres'])}")
+    print(f"🏦 Emprunts BPI : {_posneg(balance_sheet['Emprunts BPI'])}")
+    print(f"🏦 Emprunts bancaires : {_posneg(balance_sheet['Emprunts bancaires'])}")
+    print(f"📊 Capitaux propres : {_posneg(balance_sheet['Capitaux propres'])}")
     print("=" * 40)
-    print(f"  💰 Trésorerie début : {_posneg(balance_sheet['Trésorerie début'])}")
-    print(f"  💰 Trésorerie fin : {_posneg(balance_sheet['Trésorerie fin'])}")
+    print(f"💰 Trésorerie début : {_posneg(balance_sheet['Trésorerie début'])}")
+    print(f"💰 Trésorerie fin : {_posneg(balance_sheet['Trésorerie fin'])}")
 
 
 def print_opening_balance(restaurant: Restaurant):
@@ -57,8 +124,7 @@ def print_opening_balance(restaurant: Restaurant):
     their starting financial position.
     """
     # Solde des comptes à l'ouverture (tour 0)
-    bal = restaurant.ledger.balance_accounts(upto_tour=0)
-    bs = balance_sheet(bal)
+    bs = restaurant.ledger.balance_sheet(tour_max=0)
     actif = bs.actif
     passif = bs.passif
 
@@ -151,44 +217,44 @@ def print_turn_result(resultat_tour: TurnResult) -> None:
     dem_bar = _bar(clients_serv, max(1, clients_attr))
 
     print(f"\n{'─' * 76}\n")
-    print(f"  📊 Résultat — {name} — Tour {tour}")
+    print(f"📊 Résultat — {name} — Tour {tour}")
     print(f"\n{'─' * 76}\n")
 
     # Ligne demande/capacité
     print(
-        f"  Demande attribuée : {clients_attr:>6d}   Couvert(s) servi(s) : {clients_serv:>6d}"
+        f"Demande attribuée : {clients_attr:>6d}   Couvert(s) servi(s) : {clients_serv:>6d}"
     )
     print(
-        f"  Capacité RH/salle : {capacity:>6d}   Utilisation capacité : {_pct(clients_serv, capacity):>6}"
+        f"Capacité RH/salle : {capacity:>6d}   Utilisation capacité : {_pct(clients_serv, capacity):>6}"
     )
-    print(f"  Couverture demande: {_pct(clients_serv, clients_attr):>6}")
-    print(f"  [{cap_bar}] Capacité")
-    print(f"  [{dem_bar}] Demande  ")
+    print(f"Couverture demande: {_pct(clients_serv, clients_attr):>6}")
+    print(f"[{cap_bar}] Capacité")
+    print(f"[{dem_bar}] Demande  ")
 
     # Prix & CA
     print(
         f"\n  Prix médian menu : {format_to_euro(price_med):>12}   Ticket moyen (réel) : {format_to_euro(asp):>12}"
     )
-    print(f"  Chiffre d'affaires: {format_to_euro(ca):>12}")
+    print(f"Chiffre d'affaires: {format_to_euro(ca):>12}")
 
     # COGS & marge
-    print(f"  COGS (coût prod)  : {format_to_euro(cogs):>12}")
+    print(f"COGS (coût prod)  : {format_to_euro(cogs):>12}")
     print(
-        f"  Marge brute       : {format_to_euro(gross_margin):>12}   (taux: {_pct(gross_margin, ca)})"
+        f"Marge brute       : {format_to_euro(gross_margin):>12}   (taux: {_pct(gross_margin, ca)})"
     )
 
     # OPEX
     print(f"\n  Coûts fixes       : {format_to_euro(fixed_costs):>12}")
-    print(f"  Marketing         : {format_to_euro(marketing):>12}")
-    print(f"  Masse salariale   : {format_to_euro(rh_cost):>12}")
-    print(f"  OPEX total        : {format_to_euro(opex):>12}")
+    print(f"Marketing         : {format_to_euro(marketing):>12}")
+    print(f"Masse salariale   : {format_to_euro(rh_cost):>12}")
+    print(f"OPEX total        : {format_to_euro(opex):>12}")
 
     # Résultat opé
     print(f"\n  Résultat opé.     : {format_to_euro(operating_result):>12}")
 
     # Tréso
     print(f"\n  Trésorerie début  : {format_to_euro(funds_start):>12}")
-    print(f"  Trésorerie fin    : {format_to_euro(funds_end):>12}")
+    print(f"Trésorerie fin    : {format_to_euro(funds_end):>12}")
 
     print(f"{'─' * 76}\n")
 

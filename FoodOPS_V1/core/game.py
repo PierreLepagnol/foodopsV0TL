@@ -8,13 +8,6 @@ from pydantic import BaseModel
 from FoodOPS_V1.core.accounting import (
     Ledger,
     month_amortization,
-    post_cogs,
-    post_depreciation,
-    post_loan_payment,
-    post_opening,
-    post_payroll,
-    post_sales,
-    post_services_ext,
 )
 from FoodOPS_V1.core.market import allocate_demand, clamp_capacity
 from FoodOPS_V1.domain import Restaurant, Scenario, RestaurantType
@@ -26,7 +19,7 @@ from FoodOPS_V1.ui.affichage import (
     print_resume_financement,
 )
 from FoodOPS_V1.ui.director_office import bureau_directeur
-from FoodOPS_V1.ui.results_view import print_turn_result
+from FoodOPS_V1.ui.affichage import print_turn_result
 from FoodOPS_V1.utils import get_input
 
 
@@ -187,14 +180,7 @@ def initialisation_restaurants() -> List[Restaurant]:
 
         # Initialiser la compta + écriture d'ouverture
         restaurant.ledger = Ledger()
-        total_loans = plan.bank_loan + plan.bpi_loan
-        post_opening(
-            restaurant.ledger,
-            equity=None,  # auto-équilibrage 101
-            cash=restaurant.funds,  # tréso initiale
-            equipment=restaurant.equipment_invest,  # immobilisations
-            loans_total=total_loans,  # dette initiale
-        )
+        restaurant.post_opening()
 
         # Résumé financement et bilan d'ouverture
         print_resume_financement(restaurant, plan)
@@ -433,6 +419,44 @@ def _apply_client_losses(
     }
 
 
+def split_interest_principal(
+    outstanding: float, annual_rate: float, monthly_payment: float
+) -> Tuple[float, float, float]:
+    """Calcule la répartition d'un paiement mensuel entre intérêts et capital.
+
+    Pour un prêt donné, décompose le paiement mensuel en part d'intérêts
+    (calculée sur l'encours restant) et part de remboursement du capital.
+
+    Args:
+        outstanding: Montant restant dû sur le prêt
+        annual_rate: Taux d'intérêt annuel (ex: 0.045 pour 4.5%)
+        monthly_payment: Montant du paiement mensuel fixe
+
+    Returns:
+        Tuple contenant:
+        - interest_amount: Part d'intérêts du paiement mensuel
+        - principal_amount: Part de capital remboursé
+        - new_outstanding: Nouvel encours restant après paiement
+
+    Note:
+        Si le paiement mensuel ou l'encours sont <= 0, retourne (0, 0, encours_initial).
+        Les montants sont arrondis à 2 décimales pour éviter les erreurs de précision.
+    """
+    if monthly_payment <= 0 or outstanding <= 0:
+        return (0.0, 0.0, outstanding)
+
+    # Calcul des intérêts mensuels sur l'encours restant
+    interest_amount = round(outstanding * (annual_rate / 12.0), 2)
+
+    # Part du capital = paiement mensuel - intérêts (minimum 0)
+    principal_amount = max(0.0, round(monthly_payment - interest_amount, 2))
+
+    # Nouvel encours = encours actuel - capital remboursé (minimum 0)
+    new_outstanding = max(0.0, round(outstanding - principal_amount, 2))
+
+    return (interest_amount, principal_amount, new_outstanding)
+
+
 class Game:
     def __init__(self, restaurants: List[Restaurant], scenario: Scenario):
         """Moteur de jeu principal orchestrant les tours mensuels.
@@ -624,51 +648,49 @@ class Game:
                 print_turn_result(turn_result)
 
                 # 4) COMPTABILISATION (posts standards)
-                post_sales(restaurant.ledger, self.current_tour, turn_result.ca)
-                post_cogs(restaurant.ledger, self.current_tour, turn_result.cogs)
-                post_services_ext(
-                    restaurant.ledger,
-                    self.current_tour,
-                    turn_result.fixed_costs + turn_result.marketing,
-                )
-                post_payroll(restaurant.ledger, self.current_tour, turn_result.rh_cost)
+                restaurant.post_sales(self.current_tour, turn_result.ca)
+                restaurant.post_cogs(self.current_tour, turn_result.cogs)
+
+                amount = turn_result.fixed_costs + turn_result.marketing
+                restaurant.post_services_ext(self.current_tour, amount)
+
+                restaurant.post_payroll(self.current_tour, turn_result.rh_cost)
 
                 # Dotations aux amortissements
-                dot = month_amortization(restaurant.equipment_invest)
-                post_depreciation(restaurant.ledger, self.current_tour, dot)
-
-                # Emprunts : calcul intérêts / capital du mois
-                def split_interest_principal(outstanding, annual_rate, monthly_payment):
-                    if monthly_payment <= 0 or outstanding <= 0:
-                        return (0.0, 0.0, outstanding)
-                    iamt = round(outstanding * (annual_rate / 12.0), 2)
-                    pmt_principal = max(0.0, round(monthly_payment - iamt, 2))
-                    new_out = max(0.0, round(outstanding - pmt_principal, 2))
-                    return (iamt, pmt_principal, new_out)
+                dotation = restaurant.month_amortization()
+                restaurant.post_depreciation(self.current_tour, dotation)
 
                 # BPI
-                i_bpi, p_bpi, restaurant.bpi_outstanding = split_interest_principal(
-                    getattr(turn_result, "bpi_outstanding", 0.0),
-                    getattr(restaurant, "bpi_rate_annual", 0.0),
-                    getattr(restaurant, "monthly_bpi", 0.0),
+                bpi_interest, bpi_principal, restaurant.bpi_outstanding = (
+                    split_interest_principal(
+                        restaurant.bpi_outstanding,
+                        restaurant.bpi_rate_annual,
+                        restaurant.monthly_bpi,
+                    )
                 )
-                post_loan_payment(
-                    restaurant.ledger, self.current_tour, i_bpi, p_bpi, "BPI"
+                restaurant.post_loan_payment(
+                    self.current_tour, bpi_interest, bpi_principal, "BPI"
                 )
 
                 # Banque
-                i_bank, p_bank, restaurant.bank_outstanding = split_interest_principal(
-                    getattr(restaurant, "bank_outstanding", 0.0),
-                    getattr(restaurant, "bank_rate_annual", 0.0),
-                    getattr(restaurant, "monthly_bank", 0.0),
+                bank_interest, bank_principal, restaurant.bank_outstanding = (
+                    split_interest_principal(
+                        restaurant.bank_outstanding,
+                        restaurant.bank_rate_annual,
+                        restaurant.monthly_bank,
+                    )
                 )
-                post_loan_payment(
-                    restaurant.ledger, self.current_tour, i_bank, p_bank, "Banque"
+                restaurant.post_loan_payment(
+                    self.current_tour, bank_interest, bank_principal, "Banque"
                 )
 
                 # Mise à jour trésorerie gameplay (après flux financiers)
+                total_loan_payments = (
+                    bpi_interest + bpi_principal + bank_interest + bank_principal
+                )
                 restaurant.funds = round(
-                    tr.funds_end - (i_bpi + p_bpi + i_bank + p_bank), 2
+                    turn_result.funds_end - total_loan_payments,
+                    2,
                 )
 
                 # Reset COGS de production (on l'a reconnu ce tour)

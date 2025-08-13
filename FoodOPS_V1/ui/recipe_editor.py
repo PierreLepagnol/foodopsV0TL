@@ -3,6 +3,7 @@ from FoodOPS_V1.domain.recipe import Recipe, RecipeLine, PrepStep, PricePolicy
 from FoodOPS_V1.rules import costing
 from FoodOPS_V1.domain.restaurant import RestaurantType
 from FoodOPS_V1.domain.ingredients import CATALOG, Ingredient
+from FoodOPS_V1.utils import get_input
 
 
 def pick_policy_for_restotype(restaurant_type: RestaurantType) -> PricePolicy:
@@ -78,14 +79,11 @@ def build_recipe(restaurant_type: RestaurantType) -> Recipe | None:
                     break
         lines.append(RecipeLine(ingredient=ing, qty_g=qty, prep=prep))
 
-    while True:
-        try:
-            portions = int(input("Nombre de portions (rendement) : "))
-            if portions <= 0:
-                raise ValueError
-            break
-        except ValueError:
-            print("⚠️ Nombre invalide.")
+    portions = get_input(
+        input_message="Nombre de portions (rendement) : ",
+        fn_validation=lambda x: x > 0,
+        error_message="⚠️ Nombre invalide.",
+    )
 
     recipe = Recipe(name=name, lines=lines, yield_portions=portions)
 

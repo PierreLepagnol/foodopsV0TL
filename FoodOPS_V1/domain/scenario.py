@@ -38,6 +38,18 @@ class Scenario(BaseModel):
     segments_share: Dict[Segment, float]
     note: str = ""
 
+    def show_scenario(self) -> None:
+        print(f"📍 Scénario : {self.name}")
+        population_total = self.population_total
+        population_total = f"{population_total:,}".replace(",", " ")
+        if self.note:
+            print(f"📝 {self.note}")
+        print(f"👥 Population totale potentielle (mois) : {population_total}")
+        print("🔎 Répartition :")
+        for k in ("étudiant", "actif", "famille", "touriste", "senior"):
+            share = self.segments_share[k]
+            print(f"- {k.capitalize():9s} : {int(share * 100)}%")
+
     def compute_segment_quantities(self) -> Dict[Segment, int]:
         """Convertit les parts du scénario en volumes entiers par segment."""
         demand = {

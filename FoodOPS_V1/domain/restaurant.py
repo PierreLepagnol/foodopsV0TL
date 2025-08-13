@@ -1,14 +1,16 @@
 from dataclasses import dataclass, field
-from typing import ClassVar, Dict, List, Optional, Type
+from typing import ClassVar, Dict, List, Optional, Tuple, Type
 from abc import ABC
 
 import numpy as np
 
+from FoodOPS_V1.core.game import FinancingPlan
 from FoodOPS_V1.domain.ingredients import FoodGrade
 from FoodOPS_V1.domain.inventory import Inventory
 from FoodOPS_V1.domain.recipe import SimpleRecipe
 from FoodOPS_V1.domain.staff import Employe
 from FoodOPS_V1.domain.local import Local
+from FoodOPS_V1.core.accounting import Ledger, post_opening, TypeOperation
 
 MARGIN_BY_RESTO = {"FAST_FOOD": 2.5, "BISTRO": 3.0, "GASTRO": 3.8}
 
@@ -32,7 +34,7 @@ class Restaurant(ABC):
     marketing_budget: float = 0.0
     menu: List[SimpleRecipe] = field(default_factory=list)
     funds: float = 0.0
-    ledger: Optional[object] = None
+    ledger: Ledger = None
     equipment_invest: float = 0.0
     bpi_outstanding: float = 0.0
     bpi_rate_annual: float = 0.0
@@ -148,6 +150,139 @@ class Restaurant(ABC):
         )
         exploitable_capacity = base_monthly_capacity * self.service_speed
         return max(0, int(exploitable_capacity))
+
+    # Enregistrement des écritures comptables
+
+    def post_opening(self, financing_plan: FinancingPlan):
+        lines = post_opening(
+            cash=self.funds,  # tréso initiale
+            equipment=self.equipment_invest,  # immobilisations
+            loans_total=financing_plan.bank_loan
+            + financing_plan.bpi_loan,  # dette initiale
+        )
+        self.ledger.post(0, "Ouverture", lines)
+
+    def post_sales(self, tour: int, chiffre_affaires: float):
+        if chiffre_affaires > 0:
+            self.ledger.post(
+                tour,
+                "Ventes",
+                [
+                    ("512", chiffre_affaires, TypeOperation.DEBIT),
+                    ("70", chiffre_affaires, TypeOperation.CREDIT),
+                ],
+            )
+        else:
+            print(f"Chiffre d'affaires négatif: {chiffre_affaires}")
+
+    def post_cogs(self, tour: int, cogs: float):
+        """Enregistre les achats consommés (CoGS) du tour."""
+        if cogs > 0:
+            self.ledger.post(
+                tour,
+                "Achats consommés (matières)",
+                [
+                    ("60", cogs, TypeOperation.DEBIT),
+                    ("512", cogs, TypeOperation.CREDIT),
+                ],
+            )
+        else:
+            print(f"Coût des matières premières négatif: {cogs}")
+
+    def post_services_ext(self, tour: int, amount: float):
+        """Enregistre les services extérieurs (loyer, abonnements, marketing)."""
+        if amount > 0:
+            self.ledger.post(
+                tour,
+                "Services extérieurs (loyer, abonnements, marketing)",
+                [
+                    ("61", amount, TypeOperation.DEBIT),
+                    ("512", amount, TypeOperation.CREDIT),
+                ],
+            )
+        else:
+            print(f"Montant des services extérieurs négatif: {amount}")
+
+    def post_payroll(self, tour: int, payroll_total: float):
+        """Enregistre les charges de personnel.
+
+        Args:
+            ledger: Grand livre à alimenter.
+            tour: Tour courant (mois).
+            payroll_total: Masse salariale totale (salaires + charges) payée.
+        """
+        if payroll_total > 0:
+            lines = [
+                ("64", payroll_total, TypeOperation.DEBIT),
+                ("512", payroll_total, TypeOperation.CREDIT),
+            ]
+            self.ledger.post(tour, "Charges de personnel", lines)
+        else:
+            print(f"Montant des charges de personnel négatif: {payroll_total}")
+
+    def post_depreciation(self, tour: int, dotation: float):
+        """Enregistre la dotation aux amortissements du tour.
+
+        Args:
+            ledger: Grand livre à alimenter.
+            tour: Tour courant (mois).
+            dotation: Montant de la dotation de la période.
+        """
+        if dotation > 0:
+            lines = [
+                ("681", dotation, TypeOperation.DEBIT),
+                ("2815", dotation, TypeOperation.CREDIT),
+            ]
+            self.ledger.post(tour, "Dotations aux amortissements", lines)
+        else:
+            print(f"Montant des dotations aux amortissements négatif: {dotation}")
+
+    def post_loan_payment(
+        self, tour: int, interest: float, principal: float, label: str
+    ):
+        """Enregistre un remboursement d'emprunt (intérêts et/ou capital).
+
+        Args:
+            ledger: Grand livre à alimenter.
+            tour: Tour courant (mois).
+            interest: Part d'intérêts payée (charge 66).
+            principal: Part de capital remboursée (diminution du 164).
+            label: Suffixe descriptif du prêt (ex: "banque A").
+        """
+        lines: List[Tuple[str, float, TypeOperation]] = []
+        if interest < 0 or principal < 0:
+            print(
+                f"Montant d'intérêts ou de capital négatif: {interest} ou {principal}"
+            )
+        if interest > 0:
+            lines.extend(
+                ("66", interest, TypeOperation.DEBIT),
+                ("512", interest, TypeOperation.CREDIT),
+            )
+        if principal > 0:
+            lines.extend(
+                ("164", principal, TypeOperation.DEBIT),
+                ("512", principal, TypeOperation.CREDIT),
+            )
+        if lines:
+            self.ledger.post(tour, f"Remboursement {label}", lines)
+
+    def month_amortization(self) -> float:
+        """Calcule la dotation d'amortissement mensuelle linéaire.
+
+        La durée d'amortissement provient de `EQUIP_AMORT_YEARS`. Un tour
+        correspond à un mois.
+
+        Returns:
+            Montant mensuel de la dotation (arrondi à 2 décimales). Retourne 0 si
+            `amount <= 0`.
+        """
+        amount = self.equipment_invest
+        EQUIP_AMORT_YEARS = 5  # Amortissement linéaire des équipements (années)
+        months = EQUIP_AMORT_YEARS * 12  # Nombre de mois d'amortissement
+        return 0.0 if amount <= 0 else round(amount / months, 2)
+
+    # FIN - Enregistrement des écritures comptables
 
     @classmethod
     def get_default_menus_simple(cls) -> Dict[str, List[SimpleRecipe]]:
