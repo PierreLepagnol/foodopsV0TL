@@ -3,7 +3,6 @@ from typing import List, Tuple
 from FoodOPS_V1.core.accounting import Ledger
 from FoodOPS_V1.core.market import allocate_demand, clamp_capacity
 from FoodOPS_V1.domain.local import CATALOG_LOCALS
-from FoodOPS_V1.domain.recipe import SimpleRecipe
 from FoodOPS_V1.domain.restaurant import Restaurant
 from FoodOPS_V1.domain.types import RestaurantType
 from FoodOPS_V1.domain.scenario import Scenario, propose_financing
@@ -123,94 +122,55 @@ def _sell_from_finished_fifo(
         Les lots vides sont automatiquement supprimés de l'inventaire.
         Retourne (0, 0.0) si pas de stock ou quantité invalide.
     """
-    inventory = restaurant.inventory
+    inventaire = restaurant.inventory
 
-    # Early return if no inventory available or invalid quantity requested
-    if not inventory.finished or quantity <= 0:
+    # Retour anticipé si pas d'inventaire disponible ou quantité demandée invalide
+    if not inventaire.finished or quantity <= 0:
         return (0, 0.0)
 
-    # Initialize tracking variables
-    need = quantity  # Remaining quantity to sell
-    sold = 0  # Total portions sold so far
-    revenue = 0.0  # Total revenue accumulated
-    i = 0  # Current batch index in FIFO queue
+    # Initialiser les variables de suivi
+    besoin = quantity  # Quantité restante à vendre
+    vendu = 0  # Total des portions vendues jusqu'à présent
+    chiffre_affaires = 0.0  # Chiffre d'affaires total accumulé
+    i = 0  # Index du lot actuel dans la file FIFO
 
-    # Process batches in FIFO order until we've sold enough or run out of inventory
-    while i < len(inventory.finished) and need > 0:
-        # Get current batch from FIFO queue
-        batch = inventory.finished[i]
+    # Traiter les lots en ordre FIFO jusqu'à ce qu'on ait vendu assez ou épuisé l'inventaire
+    while i < len(inventaire.finished) and besoin > 0:
+        # Récupérer le lot actuel de la file FIFO
+        lot = inventaire.finished[i]
 
-        # Calculate how many portions we can take from this batch
-        # Use safe attribute access in case portions attribute is missing
-        available_portions = int(getattr(batch, "portions", 0))
-        take = min(available_portions, need)
+        # Calculer combien de portions on peut prendre de ce lot
+        # Utiliser un accès sécurisé aux attributs au cas où l'attribut portions serait manquant
+        portions_disponibles = int(getattr(lot, "portions", 0))
+        prendre = min(portions_disponibles, besoin)
 
-        # Process the sale if we can take any portions from this batch
-        if take > 0:
-            # Update totals
-            sold += take
+        # Traiter la vente si on peut prendre des portions de ce lot
+        if prendre > 0:
+            # Mettre à jour les totaux
+            vendu += prendre
 
-            # Calculate revenue for this batch using its specific selling price
-            # Use safe attribute access with fallback to 0.0 for missing prices
-            batch_price = float(getattr(batch, "selling_price", 0.0) or 0.0)
-            revenue += take * batch_price
+            # Calculer le chiffre d'affaires pour ce lot en utilisant son prix de vente spécifique
+            # Utiliser un accès sécurisé aux attributs avec valeur par défaut pour les prix manquants
+            prix_lot = float(getattr(lot, "selling_price", 0.0) or 0.0)
+            chiffre_affaires += prendre * prix_lot
 
-            # Update batch inventory (reduce available portions)
-            batch.portions -= take
+            # Mettre à jour l'inventaire du lot (réduire les portions disponibles)
+            lot.portions -= prendre
 
-            # Update remaining need
-            need -= take
+            # Mettre à jour le besoin restant
+            besoin -= prendre
 
-        # Remove empty batches from inventory or move to next batch
-        if getattr(batch, "portions", 0) <= 0:
-            # Batch is exhausted, remove it from inventory
-            inventory.finished.pop(i)
-            # Don't increment i since we removed an element
+        # Supprimer les lots vides de l'inventaire ou passer au lot suivant
+        if lot.portions <= 0:
+            # Le lot est épuisé, le supprimer de l'inventaire
+            inventaire.finished.pop(i)
+            # Ne pas incrémenter i puisqu'on a supprimé un élément
         else:
-            # Batch still has portions, move to next batch
+            # Le lot a encore des portions, passer au lot suivant
             i += 1
 
-    # Return total sold and revenue (rounded to avoid floating point precision issues)
-    return (sold, round(revenue, 2))
-
-
-def _fixed_costs_of(restaurant: Restaurant) -> float:
-    """Calcule les coûts fixes mensuels totaux du restaurant.
-
-    Args:
-        restaurant: Restaurant dont calculer les coûts fixes
-
-    Returns:
-        Somme du loyer du local et des charges récurrentes mensuelles
-    """
-    # Somme du loyer du local et des charges récurrentes mensuelles
-    return restaurant.local.loyer + restaurant.charges_reccurentes
-
-
-def _rh_cost_of(restaurant: Restaurant) -> float:
-    """Calcule le coût salarial mensuel total de l'équipe.
-
-    Args:
-        restaurant: Restaurant avec l'équipe à évaluer
-
-    Returns:
-        Somme de tous les salaires totaux de l'équipe, arrondie à 2 décimales
-    """
-    # Additionne tous les salaires de l'équipe et arrondit à 2 décimales
-    return round(sum([employee.salaire_total for employee in restaurant.equipe]), 2)
-
-
-def _service_minutes_per_cover(rtype: RestaurantType) -> float:
-    """Retourne le temps de service standard par couvert selon le type de restaurant.
-
-    Args:
-        rtype: Type de restaurant (FAST_FOOD, BISTRO, GASTRO)
-
-    Returns:
-        Durée en minutes pour servir un couvert de ce type de restaurant
-    """
-    # Récupère la durée de service depuis la constante globale selon le type de restaurant
-    return float()
+    # Retourner le total vendu et le chiffre d'affaires (arrondi pour éviter les problèmes de précision des flottants)
+    return (vendu, round(chiffre_affaires, 2))
 
 
 def _service_capacity_with_minutes(restaurant: Restaurant, clients_cap: int) -> int:
@@ -248,7 +208,7 @@ def _consume_service_minutes(restaurant: Restaurant, clients_served: int) -> Non
         Appelle la méthode du restaurant si disponible, sinon décrémente directement.
     """
     # Calcule les minutes nécessaires selon le type de restaurant
-    min_per_cover = _service_minutes_per_cover(restaurant.type)
+    min_per_cover = restaurant._service_minutes_per_cover()
     # Calcule le temps total requis pour servir tous les clients
     need = int(round(min_per_cover * max(0, int(clients_served))))
 
@@ -499,11 +459,11 @@ class Game:
                 cout_marchandises_vendues = float(
                     getattr(restaurant, "turn_cogs", 0.0) or 0.0
                 )
-                charges_fixes = _fixed_costs_of(restaurant)
+                charges_fixes = restaurant._fixed_costs_of()
                 depenses_marketing = float(
                     getattr(restaurant, "marketing_budget", 0.0) or 0.0
                 )
-                couts_masse_salariale = _rh_cost_of(restaurant)
+                couts_masse_salariale = restaurant._rh_cost_of()
                 tresorerie_debut = float(getattr(restaurant, "funds", 0.0) or 0.0)
 
                 # Résultat opérationnel (hors amortissements/intérêts - postés en comptabilité juste après)

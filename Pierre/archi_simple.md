@@ -8,8 +8,6 @@
 6. **Diffusion d’événements** : notifications en temps réel (WebSocket) + REST pour lecture/écriture.
 7. **Tests & évolutivité** : logique testable (pure), services stateless, DB indexée.
 
----
-
 # 🎯 Objectif d’architecture (simple, découplée)
 
 Trois blocs **indépendants** reliés par des **contrats** stables :
@@ -20,8 +18,6 @@ Trois blocs **indépendants** reliés par des **contrats** stables :
 
 Communication principale : **REST/JSON** (lecture/écriture) + **WebSocket** (push d’événements).
 Le moteur **ne connaît pas** l’UI ; il parle en `DTO` et écrit dans la DB / publie des `Event`.
-
----
 
 # 🧩 Contrats (DTO) – version initiale
 
@@ -64,8 +60,6 @@ EventDTO {
 
 **Validation rapide** : Contrats minimaux, extensibles via `payload`. OK.
 **Amélioration** : ajouter `schemaVersion` dans chaque DTO pour les évolutions.
-
----
 
 # 🏗️ Vue d’ensemble (diagramme blocs)
 

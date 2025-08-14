@@ -13,9 +13,6 @@ _GRADE_RANK: Dict[FoodGrade, int] = {
 }
 
 
-# -------------------- Lots d'inventaire --------------------
-
-
 @dataclass
 class IngredientStockLot:
     """

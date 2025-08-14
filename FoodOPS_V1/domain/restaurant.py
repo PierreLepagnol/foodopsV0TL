@@ -1,17 +1,16 @@
 from dataclasses import dataclass, field
 from typing import ClassVar, Dict, List, Optional, Tuple, Type
-from abc import ABC
 
 import numpy as np
 from pydantic import BaseModel
 
-from FoodOPS_V1.domain.scenario import FinancingPlan
+from FoodOPS_V1.core.accounting import Ledger, TypeOperation, post_opening
 from FoodOPS_V1.domain.ingredients import FoodGrade
 from FoodOPS_V1.domain.inventory import Inventory
-from FoodOPS_V1.domain.recipe import SimpleRecipe
-from FoodOPS_V1.domain.staff import Employe
 from FoodOPS_V1.domain.local import Local
-from FoodOPS_V1.core.accounting import Ledger, post_opening, TypeOperation
+from FoodOPS_V1.domain.recipe import SimpleRecipe
+from FoodOPS_V1.domain.scenario import FinancingPlan
+from FoodOPS_V1.domain.staff import Employe
 from FoodOPS_V1.domain.types import RestaurantType
 
 MARGIN_BY_RESTO = {"FAST_FOOD": 2.5, "BISTRO": 3.0, "GASTRO": 3.8}
@@ -297,6 +296,42 @@ class Restaurant(BaseModel):
             Nombre total de portions finies disponibles, ou 0 si aucune
         """
         return self.inventory.total_finished_portions()
+
+    def _fixed_costs_of(self) -> float:
+        """Calcule les coûts fixes mensuels totaux du restaurant.
+
+        Args:
+            restaurant: Restaurant dont calculer les coûts fixes
+
+        Returns:
+            Somme du loyer du local et des charges récurrentes mensuelles
+        """
+        # Somme du loyer du local et des charges récurrentes mensuelles
+        return self.local.loyer + self.charges_reccurentes
+
+    def _rh_cost_of(self) -> float:
+        """Calcule le coût salarial mensuel total de l'équipe.
+
+        Args:
+            restaurant: Restaurant avec l'équipe à évaluer
+
+        Returns:
+            Somme de tous les salaires totaux de l'équipe, arrondie à 2 décimales
+        """
+        # Additionne tous les salaires de l'équipe et arrondit à 2 décimales
+        return round(sum([employee.salaire_total for employee in self.equipe]), 2)
+
+    def _service_minutes_per_cover(self) -> float:
+        """Retourne le temps de service standard par couvert selon le type de restaurant.
+
+        Args:
+            rtype: Type de restaurant (FAST_FOOD, BISTRO, GASTRO)
+
+        Returns:
+            Durée en minutes pour servir un couvert de ce type de restaurant
+        """
+        # Récupère la durée de service depuis la constante globale selon le type de restaurant
+        return float(self.SERVICE_MINUTES_PER_COVER)
 
 
 @dataclass
