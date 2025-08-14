@@ -3,7 +3,7 @@ from typing import List, Tuple
 from FoodOPS_V1.core.accounting import Ledger
 from FoodOPS_V1.core.market import allocate_demand, clamp_capacity
 from FoodOPS_V1.domain.local import CATALOG_LOCALS
-from FoodOPS_V1.domain.restaurant import Restaurant
+from FoodOPS_V1.domain.restaurant import Restaurant, make_restaurant
 from FoodOPS_V1.domain.types import RestaurantType
 from FoodOPS_V1.domain.scenario import Scenario, propose_financing
 from FoodOPS_V1.ui.affichage import (
@@ -98,6 +98,105 @@ def initialisation_restaurants() -> List[Restaurant]:
     return restaurants
 
 
+def initialisation_restaurants_auto(
+    nb_joueurs: int = 1, types: List[str | RestaurantType] | None = None
+) -> List[Restaurant]:
+    """Initialise automatiquement une liste de restaurants joueurs.
+
+    Crée `nb_joueurs` restaurants sans interaction, en effectuant pour chacun:
+    - Sélection du type (cyle FAST_FOOD → BISTRO → GASTRO par défaut)
+    - Sélection d'un local par défaut (1er du catalogue)
+    - Détermination d'un investissement équipement par type
+    - Calcul du plan de financement et trésorerie initiale
+    - Initialisation du grand livre et écriture d'ouverture
+    - Génération d'un menu adapté au concept
+    - Affichage du résumé de financement et du bilan d'ouverture
+
+    Args:
+        nb_joueurs: Nombre de restaurants à créer (>=1)
+        types: Optionnel, liste de types ("FAST_FOOD" | "BISTRO" | "GASTRO" ou RestaurantType)
+               utilisés séquentiellement et cyclés si la liste est plus courte que `nb_joueurs`.
+
+    Returns:
+        Liste de restaurants initialisés et prêts à jouer.
+    """
+    assert nb_joueurs >= 1, "nb_joueurs doit être >= 1"
+
+    def _normalize_type(t: str | RestaurantType) -> RestaurantType:
+        if isinstance(t, RestaurantType):
+            return t
+        # autoriser soit le name (FAST_FOOD), soit la value ("FAST_FOOD")
+        try:
+            return RestaurantType[t]
+        except Exception:
+            # ultime tentative par value
+            for m in RestaurantType:
+                if m.value == t:
+                    return m
+            raise ValueError(f"Type de restaurant invalide: {t}")
+
+    cycle = [RestaurantType.FAST_FOOD, RestaurantType.BISTRO, RestaurantType.GASTRO]
+    chosen_types: List[RestaurantType] = []
+    if types:
+        normalized = [_normalize_type(t) for t in types]
+        for i in range(nb_joueurs):
+            chosen_types.append(normalized[i % len(normalized)])
+    else:
+        for i in range(nb_joueurs):
+            chosen_types.append(cycle[i % len(cycle)])
+
+    equip_default_by_type = {
+        RestaurantType.FAST_FOOD: 80_000.0,
+        RestaurantType.BISTRO: 120_000.0,
+        RestaurantType.GASTRO: 180_000.0,
+    }
+
+    restaurants: List[Restaurant] = []
+    for i in range(nb_joueurs):
+        rtype = chosen_types[i]
+
+        # Local par défaut (premier de la liste)
+        local = CATALOG_LOCALS[0]
+
+        equip_default = float(equip_default_by_type[rtype])
+
+        # Plan de financement
+        plan = propose_financing(local.prix_fond, equip_default)
+
+        # Création du restaurant spécialisé via la factory
+        restaurant = make_restaurant(
+            kind=rtype,
+            name=f"Resto {i + 1}",
+            local=local,
+            notoriety=0.5,
+            funds=plan.cash_initial,
+            equipment_invest=equip_default,
+            monthly_bpi=plan.bpi_monthly,
+            monthly_bank=plan.bank_monthly,
+            bpi_outstanding=plan.bpi_outstanding,
+            bank_outstanding=plan.bank_outstanding,
+        )
+
+        # Taux d'intérêt indicatifs (alignés avec propose_financing)
+        restaurant.bpi_rate_annual = 0.025
+        restaurant.bank_rate_annual = 0.045
+
+        # Comptabilité: grand livre + écriture d'ouverture
+        restaurant.ledger = Ledger()
+        restaurant.post_opening(plan)
+
+        # Menu adapté au concept
+        restaurant.menu = build_menu_for_type(restaurant)
+
+        # Résumés
+        print_resume_financement(restaurant, plan)
+        print_opening_balance(restaurant)
+
+        restaurants.append(restaurant)
+
+    return restaurants
+
+
 DISPLAY_COMPTA = False
 
 
@@ -125,7 +224,7 @@ def _sell_from_finished_fifo(
     inventaire = restaurant.inventory
 
     # Retour anticipé si pas d'inventaire disponible ou quantité demandée invalide
-    if not inventaire.finished or quantity <= 0:
+    if not inventaire.finished_product_batches or quantity <= 0:
         return (0, 0.0)
 
     # Initialiser les variables de suivi
@@ -135,9 +234,9 @@ def _sell_from_finished_fifo(
     i = 0  # Index du lot actuel dans la file FIFO
 
     # Traiter les lots en ordre FIFO jusqu'à ce qu'on ait vendu assez ou épuisé l'inventaire
-    while i < len(inventaire.finished) and besoin > 0:
+    while i < len(inventaire.finished_product_batches) and besoin > 0:
         # Récupérer le lot actuel de la file FIFO
-        lot = inventaire.finished[i]
+        lot = inventaire.finished_product_batches[i]
 
         # Calculer combien de portions on peut prendre de ce lot
         # Utiliser un accès sécurisé aux attributs au cas où l'attribut portions serait manquant

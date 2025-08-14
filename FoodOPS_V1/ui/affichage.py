@@ -189,7 +189,7 @@ def print_turn_result(resultat_tour: TurnResult) -> None:
     tour = resultat_tour.tour
 
     # Demande & capacité
-    clients_attr = _num(resultat_tour.clients_attr)
+    clients_attr = _num(resultat_tour.clients_attribues)
     clients_serv = _num(resultat_tour.clients_serv)
     capacity = _num(resultat_tour.capacity)
 

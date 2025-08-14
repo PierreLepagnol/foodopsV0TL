@@ -8,6 +8,56 @@
 6. **Diffusion d’événements** : notifications en temps réel (WebSocket) + REST pour lecture/écriture.
 7. **Tests & évolutivité** : logique testable (pure), services stateless, DB indexée.
 
+# ✅ Checklist ciblée (moteur FoodOPS)
+
+- **Cycle de tour concret aligné avec `FoodOPS_V1.core.game.Game.play()`** :
+  1. Péremption produits finis (`resto.inventory.cleanup_expired(current_tour)`)
+  2. Reset minutes RH (`resto.reset_rh_minutes()`)
+  3. Allocation demande marché (`allocate_demand(restaurants, scenario)`)
+  4. Limitation capacité (`clamp_capacity(restaurants, attrib)`)
+  5. Contraintes service minutes (`_service_capacity_with_minutes()`) + stock fini (`get_available_portions()`)
+  6. Ventes FIFO (`_sell_from_finished_fifo()`) + consommation minutes (`_consume_service_minutes()`)
+  7. Calcul pertes clients (`_apply_client_losses()`) + impact notoriété
+  8. Écritures comptables (ventes, COGS, charges fixes, marketing, masse salariale, amortissements)
+  9. Gestion emprunts BPI/banque (`split_interest_principal()`) + posts comptables
+  10. Mise à jour trésorerie finale + reset COGS production + satisfaction RH
+
+- **Contrats d'actions spécifiques FoodOPS** :
+  - `DirectorOfficeAction` : équipe RH, marketing_budget, equipment_upgrade, menu_changes
+  - `ProductionAction` : recipes_to_produce, quantities, raw_materials_purchase
+  - `TurnResult` exposable : clients_attribues, clients_serv, capacity, price_med, ca, cogs, fixed_costs, marketing, rh_cost, funds_start/end, losses
+  - Actions validées par phase : "DIRECTOR_OFFICE" --> "PRODUCTION" --> "RESOLVE" --> "DISPLAY_RESULTS"
+
+- **Ports/Adapters précis FoodOPS** :
+  - `ActionRepository` : append-only des actions joueurs avec `actionId` unique + `gameId` + `playerId` + `turn`
+  - `GameStateRepository` : snapshots complets après chaque tour résolu (restaurants + inventaires + scenario state)
+  - `EventOutbox` : diffusion `TurnResult`, pertes clients, faillites, fin de partie
+  - `AccountingAdapter` : posts comptables vers `Ledger` avec audit trail
+  - `ScenarioAdapter` : lecture paramètres marché + évolution dynamique population/segments
+
+- **Snapshot d'état par tour spécifique FoodOPS** :
+  - Restaurants : name, type, funds, notoriety, monthly_bpi/bank, bpi/bank_outstanding, equipment_invest
+  - Inventaires : raw_materials (nom, quantity, unit_cost), finished (portions, selling_price, production_tour, expiry_tour)
+  - Équipes RH : positions, satisfaction, service_minutes_left, monthly_cost
+  - Comptabilité : balance_accounts(upto_tour) pour bilan + compte de résultat
+  - Marché : population mensuelle, shares par segment, allocation précédente
+  - KPI : capacité utilisée, taux de perte clients, évolution trésorerie, ROI équipement
+
+- **Règles déterministes & idempotence FoodOPS** :
+  - Fonctions pures critiques : `allocate_demand()`, `clamp_capacity()`, `_service_capacity_with_minutes()`, `_sell_from_finished_fifo()`, `split_interest_principal()`
+  - Idempotence via `actionId` unique : rejeter doublons, recompute déterministe si replay d'actions
+  - Seed fixe pour allocation aléatoire marché par (gameId, turn)
+  - FIFO strict sur inventaire fini : ordre insertion préservé, pas d'ambiguïté
+  - Calculs financiers : arrondi à 2 décimales, ordre opérations fixe
+
+- **Tests unitaires ciblés sur fonctions pures critiques** :
+  - Marché : `allocate_demand()` avec différents scénarios population/segments, `clamp_capacity()` avec contraintes variées
+  - Inventaire : `_sell_from_finished_fifo()` avec lots multiples/vides, `cleanup_expired()` avec tours variables
+  - Minutes service : `_service_capacity_with_minutes()` + `_consume_service_minutes()` selon type restaurant
+  - Emprunts : `split_interest_principal()` avec différents taux/durées, soldes en cours
+  - Scénario : évolution déterministe population, parsing paramètres marché
+  - Comptabilité : posts standards, balance accounts, cohérence bilan/résultat
+
 # 🎯 Objectif d’architecture (simple, découplée)
 
 Trois blocs **indépendants** reliés par des **contrats** stables :
@@ -58,9 +108,50 @@ EventDTO {
 }
 ```
 
-**Validation rapide** : Contrats minimaux, extensibles via `payload`. OK.
-**Amélioration** : ajouter `schemaVersion` dans chaque DTO pour les évolutions.
+# 🔖 Contrats FoodOPS (actions & résultats)
 
+Spécialisation des contrats pour FoodOPS.
+
+```txt
+ActionDTO {
+  actionId: UUID
+  gameId: UUID
+  playerId: UUID
+  turn: int
+  type: "HR_RECRUIT" | "HR_FIRE" | "HR_ADJUST_SALARIES" | "SET_MARKETING_BUDGET" | "BUY_INGREDIENTS" | "PRODUCE_SIMPLE_RECIPE" | "SET_MENU_PRICING"
+  payload: JSON
+  submittedAt: ISO-8601
+  clientVersion?: string
+  schemaVersion?: string
+}
+
+// Exemples de payload
+// HR_ADJUST_SALARIES: { deltaPct: -10..+10 }
+// SET_MARKETING_BUDGET: { monthlyBudget: number }
+// BUY_INGREDIENTS: { name: string, grade: string, qtyKg: number }
+// PRODUCE_SIMPLE_RECIPE: { name: string, ingredient: string, grade: string, technique: string, complexity: string, portionKg: number, portions: int }
+
+TurnResultDTO {
+  gameId: UUID
+  turn: int
+  restaurant: string
+  clients_attribues: int
+  clients_serv: int
+  capacity: int
+  price_med: float
+  ca: float
+  cogs: float
+  fixed_costs: float
+  marketing: float
+  rh_cost: float
+  funds_start: float
+  funds_end: float
+  losses: { lost_total, lost_stock, lost_capacity, lost_other }
+  schemaVersion?: string
+}
+```
+
+Correspondances code: `TurnResult` (pydantic) dans `FoodOPS_V1/core/results.py` et actions issues de l’UI « bureau du directeur ».
 # 🏗️ Vue d’ensemble (diagramme blocs)
 
 ```
@@ -92,68 +183,21 @@ EventDTO {
                                                           |
                                                 WebSocket/Event Stream
 ```
+### Concrétisation moteur FoodOPS (cycle de tour)
 
-**Validation rapide** : Couplage faible, UI ↔ API ↔ Moteur ↔ DB, diffusion en push. Cohérent.
-**Amélioration** : si charge élevée, séparer “lecture” (réplicas) et “écriture” (primaire).
+Le moteur concret est implémenté dans `FoodOPS_V1.core.game.Game.play()` et enchaîne des étapes déterministes par tour (1 tour = 1 mois):
 
----
+1) Péremption produits finis: `inventory.cleanup_expired(tour)`
+2) Reset minutes RH: `restaurant.reset_rh_minutes()`
+3) Allocation de la demande: `allocate_demand(restaurants, scenario)` (segmentation + score `rules.scoring.attraction_score`)
+4) Bornage par capacité: `clamp_capacity(restaurants, allocated)` avec `compute_exploitable_capacity()`
+5) Limitation minutes de service: `_service_capacity_with_minutes(...)`
+6) Vente FIFO: `_sell_from_finished_fifo(restaurant, qty)` calcule le CA et purge FIFO
+7) Pertes & notoriété: `_apply_client_losses(...)` ajuste `restaurant.notoriety`
+8) Comptabilisation: `post_sales`, `post_cogs`, `post_services_ext`, `post_payroll`, `post_depreciation`
+9) Prêts: `split_interest_principal(...)` + `post_loan_payment`
 
-# 🔄 Cycle d’un tour (séquence)
-
-```
-UI -> API: POST /actions (ActionDTO)
-API -> Moteur: validate(ActionDTO)
-Moteur -> DB: INSERT actions_log (idempotent on actionId)
-Moteur -> WS: Event ACTION_ACCEPTED (pour tous)
-[Quand condition de fin de collecte atteinte: tous ont joué OU timeout]
-API/Runner -> Moteur: resolveTurn(gameId, turn)
-Moteur -> DB: LOAD actions_log(turn), LOAD last snapshot
-Moteur -> Moteur: compute(nextState, diffs, logs)
-Moteur -> DB: INSERT state_snap(turn+1, snapshot), UPDATE games(turn)
-Moteur -> WS: Event TURN_RESOLVED (diffs & résumé)
-UI -> API: GET /state?gameId=... (ou reçoit le push)
-```
-
-**Validation rapide** : clair et synchrone côté écriture, asynchrone côté push. OK.
-**Amélioration** : déclencher `resolveTurn` via job scheduler / message queue pour robustesse.
-
----
-
-# 🧠 Moteur de jeu (logique pure)
-
-**Rôle**
-
-* Valider une action selon l’état courant.
-* Maintenir une **fonction pure** `reduce(state, actions[]) -> nextState + events`.
-* Appliquer des règles de résolution déterministes, idempotentes.
-
-**Organisation interne**
-
-```
-/engine
-  /rules
-    - validators.ts       // règles d'éligibilité d'actions
-    - resolvers.ts        // calcul des effets
-  /core
-    - reduce.ts           // applique toutes les actions du tour
-    - diffs.ts            // calcule les "patches" d'état (JSON Patch)
-  /services
-    - repo.ts             // lecture/écriture abstraite (ports)
-    - publisher.ts        // émission d'événements (port)
-  /models
-    - types.ts            // DTO/Domain types
-```
-
-**Ports & Adapters** (faible couplage)
-
-* **Port `StateRepository`** : `loadSnapshot(gameId, turn)`, `appendAction(action)`, `saveSnapshot(state)`.
-* **Port `EventPublisher`** : `publish(event)`.
-
-**Validation rapide** : logique testable sans DB/UI. OK.
-**Amélioration** : prévoir `Clock` abstrait pour tester les timeouts.
-
----
-
+Chaque tour produit un `TurnResult` par restaurant (KPI) affiché par l’UI.
 # 🖥️ Interface Utilisateur (indépendante)
 
 **Rôle**
@@ -172,11 +216,6 @@ UI -> API: GET /state?gameId=... (ou reçoit le push)
 
 * Store local (Redux/Pinia/Zustand) synchronisé aux `EventDTO`.
 * Optimistic UI : afficher “en attente” jusqu’à `ACTION_ACCEPTED` / `ACTION_REJECTED`.
-
-**Validation rapide** : UI découplée, consomme seulement REST/WS. OK.
-**Amélioration** : exposer `GET /schema` pour décrire dynamiquement les types d’actions.
-
----
 
 # 🗄️ Base de données (simple & robuste)
 
@@ -219,53 +258,49 @@ indexes:
 * **Lecture rapide** via `state_snap`.
 * **Outbox** pour publier des événements **fiables** (pattern outbox).
 
-**Validation rapide** : cohérent, simple, infalsifiable (append-only). OK.
-**Amélioration** : ajouter `checksum` d’état par tour pour audits.
+# 🧾 Snapshot d’état par tour (FoodOPS)
 
----
+Schéma JSON minimal conseillé pour `state_snap.snapshot` afin d’alimenter l’UI et rejouer:
+
+```json
+{
+  "gameId": "...",
+  "turn": 3,
+  "scenario": { "code": "centre_ville", "population_total": 8000 },
+  "restaurants": [
+    {
+      "name": "Resto 1",
+      "type": "BISTRO",
+      "funds": 125430.25,
+      "notoriety": 0.57,
+      "service_minutes_left": 920,
+      "kitchen_minutes_left": 780,
+      "inventory": { "Poulet": [["G1_FRAIS_BRUT", 2.5]], "Riz": [["G3_SURGELE", 5.0]] },
+      "kpi": { "price_med": 14.5, "capacity": 960 },
+      "lastTurn": {
+        "clients_attribues": 540,
+        "clients_serv": 520,
+        "ca": 7560.0,
+        "cogs": 2450.0,
+        "fixed_costs": 4500.0,
+        "marketing": 600.0,
+        "rh_cost": 5200.0,
+        "funds_start": 130000.0,
+        "funds_end": 125430.25,
+        "losses": { "lost_total": 20, "lost_stock": 8, "lost_capacity": 12, "lost_other": 0 }
+      }
+    }
+  ]
+}
+```
 
 # 🔐 Concurrence, sécurité, idempotence
 
-* **Idempotence** : `actionId` unique par client → rejoue sûr.
+* **Idempotence** : `actionId` unique par client --> rejoue sûr.
 * **Verrou de tour** : `resolveTurn` utilise un **verrou pessimiste léger** (ou **advisory lock** Postgres) sur `(gameId, turn)`.
-* **Contrôle d’accès** : JWT → `playerId` + droits par `gameId`.
+* **Contrôle d’accès** : JWT --> `playerId` + droits par `gameId`.
 * **Fenêtre de collecte** : chronométrée par serveur (`Clock`), pas par client.
 
-**Validation rapide** : empêche double résolution et actions concurrentes. OK.
-**Amélioration** : si multi-nœuds, utiliser un **verrou distribué** (ex. Postgres advisory ou Redis Redlock).
-
----
-
-# 🔁 Diagramme d’interaction détaillé
-
-```
-Participant UI
-Participant API
-Participant Engine
-Participant DB
-Participant WS
-
-UI -> API: POST /actions {ActionDTO}
-API -> Engine: validate(ActionDTO)
-Engine -> DB: INSERT actions_log (on conflict do nothing)
-DB --> Engine: OK | conflict
-Engine -> WS: Event ACTION_ACCEPTED | ACTION_REJECTED
-API --> UI: 202 Accepted
-
-parallele:
-  API/Runner -> Engine: resolveTurn(gameId, turn) [trigger: all submitted or timeout]
-  Engine -> DB: SELECT actions_log(turn), SELECT state_snap(turn)
-  Engine -> Engine: reduce()
-  Engine -> DB: INSERT state_snap(turn+1), UPDATE games.turn
-  Engine -> DB: INSERT events_outbox (TURN_RESOLVED)
-  Engine -> WS: publish TURN_RESOLVED
-fin
-```
-
-**Validation rapide** : respecte la séparation, push fiable. OK.
-**Amélioration** : placer le trigger de `resolveTurn` dans un **job scheduler** (ex. cron/queue).
-
----
 
 # 🧱 API (minimaliste)
 
@@ -283,11 +318,26 @@ WS /events?gameId={id}
   -> stream EventDTO
 ```
 
-**Validation rapide** : suffisant pour jouer, relire, observer. OK.
-**Amélioration** : `GET /games/{id}/diffs?turn=n` pour transmettre des deltas légers.
+### Ports/Adapters FoodOPS (persistance & événements)
 
----
+Ports cibles pour le moteur (implémentations adaptables à la DB choisie):
 
+```txt
+interface StateRepository {
+  appendAction(action: ActionDTO): void // idempotent (gameId, actionId)
+  loadActions(gameId: UUID, turn: int): [ActionDTO]
+  loadSnapshot(gameId: UUID, turn: int): GameStateDTO | null
+  saveSnapshot(gameId: UUID, turn: int, snapshot: JSON): void
+}
+
+interface EventPublisher {
+  publish(event: EventDTO): void // via outbox
+}
+
+table events_outbox(event_id PK, game_id, turn, kind, payload JSONB, published_at NULL)
+```
+
+Idempotence: `UNIQUE(game_id, action_id)` sur `actions_log`. Publication fiable: pattern outbox (+ job d’émission).
 # 📦 Déploiement & évolutivité (sans complexifier)
 
 * **API & Moteur** : services **stateless** (scalables horizontalement).
@@ -295,122 +345,17 @@ WS /events?gameId={id}
 * **Cache** : optionnel pour `/state` (clé `gameId:turn`).
 * **Queue** (optionnel) : si pics, `resolveTurn` consommé par workers.
 
-**Validation rapide** : reste simple par défaut, extensible si charge. OK.
-**Amélioration** : métriques (latence validation, durée résolution, taille actions/turn).
-
----
-
 # 🧪 Testabilité
 
-* Règles du moteur = **fonctions pures** → tests unitaires massifs.
+* Règles du moteur = **fonctions pures** --> tests unitaires massifs.
 * **Tests de contrat** (Pact) entre API–UI et API–Moteur.
 * **Tests d’intégration** : scénario multi-joueurs, timeouts, reconnexion WS.
 
-**Validation rapide** : couverture ciblée aux zones risquées. OK.
-**Amélioration** : fuzzer sur `payload` d’actions pour robustesse.
+# 🧪 Tests unitaires ciblés (FoodOPS)
 
----
-
-# 🗺️ Schémas explicatifs (ASCII)
-
-## 1) Bloc logique « Ports & Adapters »
-
-```
-        +-------------------+
-        |   Engine Core     |
-        |  reduce/validate  |
-        +----+----------+---+
-             |          |
-     Port:Repo|          |Port:Publisher
-             v          v
-       +-----+--+    +--+------+
-       |  DB    |    |  WS/ES  |
-       +--------+    +---------+
-```
-
-**Validation** : moteur dépend d’interfaces, pas d’implémentations. OK.
-
----
-
-## 2) Données par tour (journal + snapshot)
-
-```
-Turn N:
-  actions_log: [a1, a2, ...]
-  state_snap:  snapshot(N)
-
-Turn N+1:
-  actions_log: [b1, b2, ...]
-  state_snap:  snapshot(N+1) = reduce(snapshot(N), [b*])
-```
-
-**Validation** : deterministic & rejouable. OK.
-**Amélioration** : stocker aussi les `diffs` JSON Patch pour optimiser réseau.
-
----
-
-## 3) États & phases de partie
-
-```
-[COLLECT] --(all submitted or timeout)--> [RESOLVE] --(engine done)--> [COLLECT next]
-   |                                                         |
-   +----------------(win/lose conditions)------------------> [ENDED]
-```
-
-**Validation** : cycle simple, lisible. OK.
-
----
-
-# 📄 Exemple de types (pseudo-code TypeScript)
-
-```ts
-type Phase = "COLLECT" | "RESOLVE" | "ENDED";
-
-interface GameState {
-  gameId: string;
-  turn: number;
-  phase: Phase;
-  world: any;
-  players: Record<string, any>; // public parts only
-}
-
-interface Action {
-  actionId: string;
-  gameId: string;
-  playerId: string;
-  turn: number;
-  type: string;
-  payload: any;
-  submittedAt: string;
-}
-
-interface ResolutionResult {
-  nextState: GameState;
-  events: EventDTO[];
-  diffs: any[]; // JSON Patches pour UI
-}
-```
-
-**Validation** : clair, facilement sérialisable. OK.
-**Amélioration** : séparer `PublicState`/`PrivateState` si informations secrètes (brouillard de guerre).
-
----
-
-# 🧭 Stratégie d’évolution (faible couplage)
-
-* **Versionner** les schémas (`schemaVersion`) et **ne jamais** casser les contrats.
-* **Feature flags** côté moteur (activer de nouvelles règles par jeu).
-* **Migration douce** : recalcul de snapshots via rejouage en tâche planifiée.
-
-**Validation** : permet d’évoluer sans downtime. OK.
-
----
-
-## ✅ Résumé livrable
-
-* **Plan** clair : moteurs purs, UI indépendante, DB append-only + snapshot.
-* **Contrats** précis + APIs minimales (REST/WS).
-* **Diagrammes ASCII** (blocs, séquences, données).
-* **Validations** après chaque section, avec propositions d’amélioration ciblées.
-
-Si tu veux, je peux adapter ce plan à un moteur concret (ex. jeu de stratégie à points d’action) et livrer des **squelettes de code** pour l’Engine, l’API et un **schéma SQL** prêt à exécuter.
+- Demande/Capacité: `allocate_demand` (budget, fit, cannibalisation), `clamp_capacity` (bornage)
+- Inventaire: `Inventory.sell_from_finished_fifo` (FIFO strict, CA), `cleanup_expired`
+- Minutes service: `_service_capacity_with_minutes`, `consume_service_minutes`
+- Financement & intérêts: `split_interest_principal`, `month_amortization`
+- Scénario: `compute_segment_quantities` (arrondis)
+- Compta: `Ledger.post` (équilibre D/C), `balance_sheet`

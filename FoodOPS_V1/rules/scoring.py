@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Annotated, Dict, Optional
 
 import numpy as np
-from pydantic import BaseModel, Field, RootModel
+from pydantic import BaseModel, Field
 
 from FoodOPS_V1.domain.restaurant import Restaurant
 from FoodOPS_V1.domain.market import BUDGET_PER_SEGMENT, Segment
@@ -177,15 +177,14 @@ def price_fit(price: float, budget_moyen: float) -> float:
 
 
 # Matrice concept <==> segment (fit structurel)
-class ConceptFitModel(
-    RootModel[
-        Dict[
-            str,
-            Dict[Segment, Annotated[float, Field(strict=True, ge=0, le=1)]],
-        ]
-    ]
-):
-    pass
+class ConceptFitModel(BaseModel):
+    FAST_FOOD: Dict[Segment, Annotated[float, Field(strict=True, ge=0, le=1)]]
+    BISTRO: Dict[Segment, Annotated[float, Field(strict=True, ge=0, le=1)]]
+    GASTRO: Dict[Segment, Annotated[float, Field(strict=True, ge=0, le=1)]]
+
+    def __getitem__(self, key):
+        # Allows dict-like access
+        return getattr(self, key)
 
 
 directory = Path("/home/lepagnol/Documents/Perso/Games/foodopsV0TL/FoodOPS_V1/data")
@@ -199,6 +198,10 @@ class ScoreWeightsModel(BaseModel):
     qualite: float  # qualité perçue (recettes, RH, adéquation gamme)
     notoriete: float  # "marque", bouche-à-oreille
     visibility: float  # emplacement/visibilité du local
+
+    def __getitem__(self, key):
+        # Allows dict-like access
+        return getattr(self, key)
 
 
 path = directory / "scoring_weights.json"
@@ -226,7 +229,7 @@ def attraction_score(restaurant: Restaurant, segment_client: Segment) -> float:
     notoriety = restaurant.notoriety
 
     # Fit concept <==> segment
-    fit = CONCEPT_FIT[restaurant.type][segment_client]
+    fit = CONCEPT_FIT[restaurant.type.name][segment_client]
 
     # Adéquation prix <==> budget segment
     budget_moyen = BUDGET_PER_SEGMENT.get(segment_client, 15.0)
@@ -240,6 +243,8 @@ def attraction_score(restaurant: Restaurant, segment_client: Segment) -> float:
         "visibility": vis,
     }
 
-    score = sum(SCORING_WEIGHTS[key] * attrs[key] for key in SCORING_WEIGHTS)
+    score = sum(
+        SCORING_WEIGHTS[key] * attrs[key] for key in SCORING_WEIGHTS.model_fields
+    )
 
     return max(0.0, score)

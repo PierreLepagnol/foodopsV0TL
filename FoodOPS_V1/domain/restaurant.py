@@ -256,13 +256,17 @@ class Restaurant(BaseModel):
             )
         if interest > 0:
             lines.extend(
-                ("66", interest, TypeOperation.DEBIT),
-                ("512", interest, TypeOperation.CREDIT),
+                [
+                    ("66", interest, TypeOperation.DEBIT),
+                    ("512", interest, TypeOperation.CREDIT),
+                ]
             )
         if principal > 0:
             lines.extend(
-                ("164", principal, TypeOperation.DEBIT),
-                ("512", principal, TypeOperation.CREDIT),
+                [
+                    ("164", principal, TypeOperation.DEBIT),
+                    ("512", principal, TypeOperation.CREDIT),
+                ]
             )
         if lines:
             self.ledger.post(tour, f"Remboursement {label}", lines)
@@ -334,43 +338,41 @@ class Restaurant(BaseModel):
         return float(self.SERVICE_MINUTES_PER_COVER)
 
 
-@dataclass
 class FastFoodRestaurant(Restaurant):
-    TYPE: ClassVar[str] = "FAST_FOOD"
+    TYPE: ClassVar[RestaurantType] = RestaurantType.FAST_FOOD
     DEFAULT_MARGIN: ClassVar[float] = 2.5
     SERVICE_SPEED: ClassVar[float] = 1.00
     preferences: List[FoodGrade] = [FoodGrade.G3_SURGELE, FoodGrade.G1_FRAIS_BRUT]
     SERVICE_MINUTES_PER_COVER: ClassVar[float] = 1.5
 
 
-@dataclass
 class BistroRestaurant(Restaurant):
-    TYPE: ClassVar[str] = "BISTRO"
+    TYPE: ClassVar[RestaurantType] = RestaurantType.BISTRO
     DEFAULT_MARGIN: ClassVar[float] = 3.0
     SERVICE_SPEED: ClassVar[float] = 0.80
     preferences: List[FoodGrade] = [FoodGrade.G1_FRAIS_BRUT, FoodGrade.G3_SURGELE]
     SERVICE_MINUTES_PER_COVER: ClassVar[float] = 4.0
 
 
-@dataclass
 class GastroRestaurant(Restaurant):
-    TYPE: ClassVar[str] = "GASTRO"
+    TYPE: ClassVar[RestaurantType] = RestaurantType.GASTRO
     DEFAULT_MARGIN: ClassVar[float] = 3.8
     SERVICE_SPEED: ClassVar[float] = 0.50
     preferences: List[FoodGrade] = [FoodGrade.G1_FRAIS_BRUT, FoodGrade.G3_SURGELE]
     SERVICE_MINUTES_PER_COVER: ClassVar[float] = 7.0
 
 
-_REGISTRY: Dict[str, Type[Restaurant]] = {
-    FastFoodRestaurant.TYPE: FastFoodRestaurant,
-    BistroRestaurant.TYPE: BistroRestaurant,
-    GastroRestaurant.TYPE: GastroRestaurant,
-}
+def make_restaurant(kind: str | RestaurantType, **kwargs) -> Restaurant:
+    """Factory that creates a restaurant subclass instance from kind.
 
+    Accepts either a string (e.g., "FAST_FOOD") or a `RestaurantType` enum.
+    """
+    if isinstance(kind, str):
+        kind = RestaurantType[kind]
 
-def make_restaurant(kind: str, **kwargs) -> Restaurant:
-    """Factory that replaces enum->class mapping for deserialization/creation."""
-    cls = _REGISTRY.get(kind)
-    if not cls:
-        raise ValueError(f"Unknown restaurant kind: {kind}")
-    return cls(**kwargs)
+    if kind == RestaurantType.FAST_FOOD:
+        return FastFoodRestaurant(**kwargs)
+    elif kind == RestaurantType.BISTRO:
+        return BistroRestaurant(**kwargs)
+    elif kind == RestaurantType.GASTRO:
+        return GastroRestaurant(**kwargs)

@@ -219,7 +219,7 @@ def allocate_demand(
 
         # Allocation gloutonne : remplit d'abord le restaurant le mieux classé, puis déborde
         # vers le suivant quand la capacité est atteinte
-        for index_restaurant, _score in ranked:
+        for index_restaurant, _score in ranked.items():
             if remaining <= 0:
                 break
             if capacity_left_per_restaurant[index_restaurant] <= 0:
